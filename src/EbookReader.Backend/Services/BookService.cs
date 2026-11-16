@@ -71,6 +71,7 @@ public class BookService : IBookService
                 Format = parsed.Format,
                 ContentHash = parsed.ContentHash,
                 FileSizeBytes = fileBytes!.Length,
+                FileBytes = fileBytes!,
                 Pages = parsed.Pages,
                 CurrentPage = 1,
                 LastPositionUpdatedAtUtc = now,
@@ -299,6 +300,34 @@ public class BookService : IBookService
 
             db.Books.Remove(book);
             return ServiceResult<bool>.Success(true);
+        });
+    }
+
+    public async Task<ServiceResult<(byte[] FileBytes, string Format, string FileName)>> GetBookFileAsync(
+        Guid requestingUserId,
+        Guid bookId)
+    {
+        return await _dataStore.ReadAsync(db =>
+        {
+            var book = db.Books.FirstOrDefault(b => b.Id == bookId);
+            if (book is null)
+            {
+                return ServiceResult<(byte[] FileBytes, string Format, string FileName)>.Failure(
+                    404,
+                    EbookErrorCodes.BookNotFound,
+                    "The requested book was not found.");
+            }
+
+            if (book.UserId != requestingUserId)
+            {
+                return ServiceResult<(byte[] FileBytes, string Format, string FileName)>.Failure(
+                    403,
+                    EbookErrorCodes.ForbiddenBookAccess,
+                    "You do not have permission to access another user's book.");
+            }
+
+            return ServiceResult<(byte[] FileBytes, string Format, string FileName)>.Success(
+                (book.FileBytes, book.Format, book.FileName));
         });
     }
 

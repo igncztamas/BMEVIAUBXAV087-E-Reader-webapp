@@ -4,7 +4,7 @@ using EbookReader.Backend.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 var dataFilePath = builder.Configuration["DataStore:FilePath"]
-    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "ebook_store.json");
+    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "ebook_store.db");
 
 builder.Services.AddEbookBackendServices(dataFilePath);
 
@@ -251,10 +251,50 @@ public static class EbookApiEndpoints
             var result = await bookService.DeleteBookAsync(user.Id, id);
             return ToHttpResult(result);
         });
+
+        app.MapGet("/api/books/{id:guid}/file", async (
+            Guid id,
+            HttpContext http,
+            IAuthService authService,
+            IBookService bookService) =>
+        {
+            var user = await AuthenticateAsync(http, authService);
+            if (user is null)
+            {
+                return UnauthorizedResult();
+            }
+
+            var result = await bookService.GetBookFileAsync(user.Id, id);
+            if (!result.IsSuccess)
+            {
+                return ToHttpResult(result);
+            }
+
+            return Results.File(
+                result.Data.FileBytes,
+                contentType: string.Equals(result.Data.Format, "PDF", StringComparison.OrdinalIgnoreCase)
+                    ? "application/pdf"
+                    : "application/epub+zip",
+                enableRangeProcessing: true);
+        });
     }
 
-    private static string? GetAuthHeader(HttpContext http) =>
-        http.Request.Headers.Authorization.FirstOrDefault();
+    private static string? GetAuthHeader(HttpContext http)
+    {
+        var authHeader = http.Request.Headers.Authorization.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(authHeader))
+        {
+            return authHeader;
+        }
+
+        var tokenQuery = http.Request.Query["token"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tokenQuery))
+        {
+            return tokenQuery;
+        }
+
+        return null;
+    }
 
     private static async Task<UserDto?> AuthenticateAsync(HttpContext http, IAuthService authService)
     {

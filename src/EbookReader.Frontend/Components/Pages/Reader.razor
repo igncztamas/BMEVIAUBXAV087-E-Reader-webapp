@@ -2,6 +2,7 @@
 @inject UserSessionService Session
 @inject EbookApiClient ApiClient
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>Reader – E-book Reader</PageTitle>
 
@@ -47,7 +48,7 @@ else
 
     <div class="reader-layout">
         <div>
-            <div class="reader-page-box">@_currentPageContent</div>
+            <div id="ebook-render-target" class="reader-page-box"></div>
 
             <div class="card" style="margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                 <div style="display: flex; gap: 0.5rem;">
@@ -126,6 +127,7 @@ else
     private string? _errorMessage;
     private string? _statusMessage;
     private bool _isLoading = true;
+    private bool _needsJsRender;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -137,6 +139,31 @@ else
         }
 
         await LoadBookAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_needsJsRender && _book is not null)
+        {
+            _needsJsRender = false;
+            var fileUrl = $"/api/books/{BookId}/file?token={Uri.EscapeDataString(Session.Token ?? string.Empty)}";
+            try
+            {
+                await JS.InvokeVoidAsync("ebookRenderer.renderPage", new
+                {
+                    targetId = "ebook-render-target",
+                    bookId = BookId.ToString(),
+                    format = _book.Format,
+                    fileUrl,
+                    pageNumber = _currentPage,
+                    fallbackHtml = _currentPageContent
+                });
+            }
+            catch
+            {
+                // Fallback HTML is already in DOM
+            }
+        }
     }
 
     private async Task LoadBookAsync()
@@ -153,6 +180,7 @@ else
             _jumpPageInput = _currentPage;
             _currentPageContent = _book.CurrentPageContent;
             _bookmarks = _book.Bookmarks.OrderBy(b => b.PageNumber).ToList();
+            _needsJsRender = true;
         }
         else
         {
@@ -187,6 +215,9 @@ else
         _currentPageContent = pageResult.Data.Content;
 
         await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow);
+
+        _needsJsRender = true;
+        StateHasChanged();
     }
 
     private async Task HandleCreateBookmarkAsync()

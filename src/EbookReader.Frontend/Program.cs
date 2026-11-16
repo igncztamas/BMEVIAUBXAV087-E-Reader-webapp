@@ -10,7 +10,7 @@ builder.WebHost.UseUrls(isBackendPortAlreadyInUse
     : ["http://localhost:5060", "http://localhost:5050"]);
 
 var dataFilePath = builder.Configuration["DataStore:FilePath"]
-    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "EbookReader.Backend", "App_Data", "ebook_store.json"));
+    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "EbookReader.Backend", "App_Data", "ebook_store.db"));
 
 builder.Services.AddEbookBackendServices(dataFilePath);
 
