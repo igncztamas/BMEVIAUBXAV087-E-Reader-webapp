@@ -1,0 +1,224 @@
+@page "/"
+@page "/library"
+@implements IDisposable
+@inject UserSessionService Session
+@inject EbookApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>My Library – E-book Reader</PageTitle>
+
+@if (Session.IsAuthenticated)
+{
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h1>My Library (@_books.Count books)</h1>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@_errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_successMessage))
+    {
+        <div class="alert alert-success" role="status">@_successMessage</div>
+    }
+
+    <div class="card">
+        <h2 style="margin-top: 0; font-size: 1.2rem;">Upload New E-book (PDF / EPUB)</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 1rem; align-items: end;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="book-title">Book Title (optional)</label>
+                <input id="book-title" class="form-control" @bind="_customTitle" />
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="book-file">Select File (.pdf, .epub – max. 10 MB)</label>
+                <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" />
+            </div>
+            <div>
+                <button class="btn btn-primary" @onclick="HandleUploadSelectedFileAsync" disabled="@(_selectedFileBytes is null || _isBusy)">
+                    Upload
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (_books.Count == 0)
+    {
+        <div class="card" style="text-align: center; color: var(--muted); padding: 2.5rem;">
+            You have no uploaded books yet. Upload a PDF or EPUB file above!
+        </div>
+    }
+    else
+    {
+        <div class="book-grid">
+            @foreach (var book in _books)
+            {
+                <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
+                            <h3 style="margin: 0 0 0.35rem 0; font-size: 1.15rem;">@book.Title</h3>
+                            <span class="badge">@book.Format</span>
+                        </div>
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
+                            File: @book.FileName (@FormatSize(book.FileSizeBytes))
+                        </p>
+                        <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
+                            Reading position: <strong>Page @book.CurrentPage / @book.TotalPages</strong>
+                        </p>
+                        <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--muted);">
+                            Bookmarks: @book.BookmarkCount
+                        </p>
+                    </div>
+
+                    <div style="display: flex; gap: 0.5rem;">
+                        <a class="btn btn-primary btn-sm" style="flex: 1;" href="/reader/@book.Id">
+                            📖 Open (Page @book.CurrentPage)
+                        </a>
+                        <button class="btn btn-danger btn-sm" @onclick="() => HandleDeleteBookAsync(book.Id)">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<BookSummaryItemDto> _books = new();
+    private string? _customTitle;
+    private string? _selectedFileName;
+    private byte[]? _selectedFileBytes;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private bool _isBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.OnChange += HandleSessionChanged;
+        if (!Session.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadBooksAsync();
+    }
+
+    private async void HandleSessionChanged()
+    {
+        if (Session.IsAuthenticated)
+        {
+            await LoadBooksAsync();
+        }
+        else
+        {
+            _books.Clear();
+            Navigation.NavigateTo("/login");
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadBooksAsync()
+    {
+        var result = await ApiClient.GetBooksAsync();
+        if (result.IsSuccess && result.Data is not null)
+        {
+            _books = result.Data;
+        }
+        else if (!result.IsSuccess)
+        {
+            _errorMessage = result.ErrorMessage;
+        }
+    }
+
+    private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _successMessage = null;
+
+        var file = e.File;
+        _selectedFileName = file.Name;
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 12 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            _selectedFileBytes = ms.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _selectedFileBytes = null;
+            _errorMessage = $"The selected file is too large or unreadable: {ex.Message}";
+        }
+    }
+
+    private async Task HandleUploadSelectedFileAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFileName) || _selectedFileBytes is null)
+        {
+            _errorMessage = "Please select a file first!";
+            return;
+        }
+
+        await UploadBookBytesAsync(_selectedFileName, _selectedFileBytes, _customTitle);
+    }
+
+    private async Task UploadBookBytesAsync(string fileName, byte[] bytes, string? title)
+    {
+        _errorMessage = null;
+        _successMessage = null;
+        _isBusy = true;
+
+        try
+        {
+            var result = await ApiClient.UploadBookAsync(fileName, bytes, title);
+            if (result.IsSuccess && result.Data is not null)
+            {
+                _successMessage = $"Successfully uploaded: '{result.Data.Title}' ({result.Data.Format}, {result.Data.TotalPages} pages).";
+                _customTitle = null;
+                _selectedFileBytes = null;
+                _selectedFileName = null;
+                await LoadBooksAsync();
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Failed to upload file.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Network error during upload: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task HandleDeleteBookAsync(Guid bookId)
+    {
+        _errorMessage = null;
+        _successMessage = null;
+
+        var result = await ApiClient.DeleteBookAsync(bookId);
+        if (result.IsSuccess)
+        {
+            _successMessage = "Book deleted from your library.";
+            await LoadBooksAsync();
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Failed to delete book.";
+        }
+    }
+
+    private static string FormatSize(long bytes) =>
+        bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024.0:F1} KB";
+
+    public void Dispose()
+    {
+        Session.OnChange -= HandleSessionChanged;
+    }
+}

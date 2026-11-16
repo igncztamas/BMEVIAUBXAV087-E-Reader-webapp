@@ -1,0 +1,75 @@
+@page "/register"
+@inject UserSessionService Session
+@inject EbookApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>Create Account – E-book Reader</PageTitle>
+
+<div class="card auth-card">
+    <h1>Create Account</h1>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@_errorMessage</div>
+    }
+
+    <div class="form-group">
+        <label for="reg-username">Username (min. 3 characters)</label>
+        <input id="reg-username" class="form-control" @bind="_username" />
+    </div>
+
+    <div class="form-group">
+        <label for="reg-password">Password (min. 4 characters)</label>
+        <input id="reg-password" type="password" class="form-control" @bind="_password" />
+    </div>
+
+    <button class="btn btn-primary" style="width: 100%;" @onclick="HandleRegisterAsync" disabled="@_isSubmitting">
+        @(_isSubmitting ? "Registering..." : "Register and Login")
+    </button>
+
+    <p style="margin-top: 1rem; text-align: center; font-size: 0.9rem;">
+        Already have an account? <a href="/login">Login!</a>
+    </p>
+</div>
+
+@code {
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private string? _errorMessage;
+    private bool _isSubmitting;
+
+    protected override void OnInitialized()
+    {
+        if (Session.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private async Task HandleRegisterAsync()
+    {
+        _errorMessage = null;
+        _isSubmitting = true;
+
+        try
+        {
+            var result = await ApiClient.RegisterAsync(_username, _password);
+            if (result.IsSuccess)
+            {
+                Navigation.NavigateTo("/");
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Registration failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to connect to server: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}

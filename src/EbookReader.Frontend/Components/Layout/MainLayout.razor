@@ -1,0 +1,44 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject UserSessionService Session
+@inject EbookApiClient ApiClient
+@inject NavigationManager Navigation
+
+<header class="navbar">
+    <a class="navbar-brand" href="/">📚 E-book Reader</a>
+    <nav class="navbar-links">
+        @if (Session.IsAuthenticated && Session.CurrentUser is not null)
+        {
+            <span>Logged in as: <strong>@Session.CurrentUser.Username</strong></span>
+            <a class="btn btn-outline btn-sm" href="/">My Library</a>
+            <button class="btn btn-outline btn-sm" @onclick="HandleLogoutAsync">Logout</button>
+        }
+        else
+        {
+            <a class="btn btn-outline btn-sm" href="/login">Login</a>
+            <a class="btn btn-primary btn-sm" href="/register">Register</a>
+        }
+    </nav>
+</header>
+
+<main class="container">
+    @Body
+</main>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Session.OnChange += StateHasChanged;
+    }
+
+    private async Task HandleLogoutAsync()
+    {
+        await ApiClient.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        Session.OnChange -= StateHasChanged;
+    }
+}

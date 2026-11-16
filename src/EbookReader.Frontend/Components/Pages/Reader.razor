@@ -1,0 +1,230 @@
+@page "/reader/{BookId:guid}"
+@inject UserSessionService Session
+@inject EbookApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>Reader – E-book Reader</PageTitle>
+
+@if (!Session.IsAuthenticated)
+{
+    <div class="alert alert-danger" role="alert">
+        You must be logged in to use the reader. <a href="/login">Login here!</a>
+    </div>
+}
+else if (_isLoading)
+{
+    <div class="card">Loading book...</div>
+}
+else if (_book is null)
+{
+    <div class="alert alert-danger" role="alert">
+        @(_errorMessage ?? "The book could not be loaded.")
+    </div>
+    <a class="btn btn-outline" href="/">← Back to Library</a>
+}
+else
+{
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+            <a class="btn btn-outline btn-sm" href="/">← Back to Library</a>
+            <h1 style="display: inline-block; margin: 0 0 0 0.75rem; font-size: 1.45rem;">@_book.Title</h1>
+            <span class="badge" style="margin-left: 0.5rem;">@_book.Format</span>
+        </div>
+        <div style="font-weight: 600;">
+            Page: @_currentPage / @_totalPages
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@_errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-success" role="status">@_statusMessage</div>
+    }
+
+    <div class="reader-layout">
+        <div>
+            <div class="reader-page-box">@_currentPageContent</div>
+
+            <div class="card" style="margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-outline" @onclick="PreviousPageAsync" disabled="@(_currentPage <= 1)">
+                        ◀ Previous Page
+                    </button>
+                    <button class="btn btn-primary" @onclick="NextPageAsync" disabled="@(_currentPage >= _totalPages)">
+                        Next Page ▶
+                    </button>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label for="jump-page-input" style="font-size: 0.9rem; font-weight: 600;">Jump to page:</label>
+                    <input id="jump-page-input" type="number" class="form-control" style="width: 90px;" @bind="_jumpPageInput" />
+                    <button class="btn btn-outline btn-sm" @onclick="HandleJumpToPageAsync">Go</button>
+                </div>
+            </div>
+        </div>
+
+        <aside>
+            <div class="card">
+                <h2 style="margin-top: 0; font-size: 1.15rem;">🔖 Bookmarks (@_bookmarks.Count)</h2>
+                <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0;">
+                    Save current page (@_currentPage) with a custom name:
+                </p>
+
+                <div class="form-group">
+                    <label for="bookmark-name">Bookmark Name</label>
+                    <input id="bookmark-name" class="form-control" @bind="_newBookmarkName" />
+                </div>
+
+                <button class="btn btn-primary" style="width: 100%; margin-bottom: 1rem;" @onclick="HandleCreateBookmarkAsync">
+                    Create Bookmark (Page @_currentPage)
+                </button>
+
+                @if (_bookmarks.Count == 0)
+                {
+                    <p style="font-size: 0.88rem; color: var(--muted); text-align: center; margin: 1rem 0 0 0;">
+                        No bookmarks saved for this book yet.
+                    </p>
+                }
+                else
+                {
+                    <ul class="bookmark-list">
+                        @foreach (var bm in _bookmarks)
+                        {
+                            <li class="bookmark-item">
+                                <button class="btn btn-outline btn-sm" style="flex: 1; justify-content: flex-start; text-align: left;"
+                                        @onclick="() => NavigateToPageAsync(bm.PageNumber)">
+                                    <strong>Page @bm.PageNumber:</strong> @bm.Name
+                                </button>
+                                <button class="btn btn-danger btn-sm" title="Delete bookmark"
+                                        @onclick="() => HandleDeleteBookmarkAsync(bm.Id)">
+                                    ✕
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid BookId { get; set; }
+
+    private BookDetailItemDto? _book;
+    private int _currentPage = 1;
+    private int _totalPages = 1;
+    private int _jumpPageInput = 1;
+    private string _currentPageContent = string.Empty;
+    private List<BookmarkItemDto> _bookmarks = new();
+    private string _newBookmarkName = string.Empty;
+    private string? _errorMessage;
+    private string? _statusMessage;
+    private bool _isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Session.IsAuthenticated)
+        {
+            _isLoading = false;
+            return;
+        }
+
+        await LoadBookAsync();
+    }
+
+    private async Task LoadBookAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+
+        var result = await ApiClient.GetBookDetailAsync(BookId);
+        if (result.IsSuccess && result.Data is not null)
+        {
+            _book = result.Data;
+            _currentPage = _book.CurrentPage;
+            _totalPages = _book.TotalPages;
+            _jumpPageInput = _currentPage;
+            _currentPageContent = _book.CurrentPageContent;
+            _bookmarks = _book.Bookmarks.OrderBy(b => b.PageNumber).ToList();
+        }
+        else
+        {
+            _book = null;
+            _errorMessage = result.ErrorMessage ?? "Failed to load book.";
+        }
+
+        _isLoading = false;
+    }
+
+    private Task PreviousPageAsync() => NavigateToPageAsync(_currentPage - 1);
+
+    private Task NextPageAsync() => NavigateToPageAsync(_currentPage + 1);
+
+    private Task HandleJumpToPageAsync() => NavigateToPageAsync(_jumpPageInput);
+
+    private async Task NavigateToPageAsync(int targetPage)
+    {
+        _errorMessage = null;
+        _statusMessage = null;
+
+        var pageResult = await ApiClient.GetBookPageAsync(BookId, targetPage);
+        if (!pageResult.IsSuccess || pageResult.Data is null)
+        {
+            _errorMessage = pageResult.ErrorMessage ?? "Failed to load page.";
+            return;
+        }
+
+        _currentPage = pageResult.Data.PageNumber;
+        _totalPages = pageResult.Data.TotalPages;
+        _jumpPageInput = _currentPage;
+        _currentPageContent = pageResult.Data.Content;
+
+        await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow);
+    }
+
+    private async Task HandleCreateBookmarkAsync()
+    {
+        _errorMessage = null;
+        _statusMessage = null;
+
+        var nameToSave = string.IsNullOrWhiteSpace(_newBookmarkName)
+            ? $"Bookmark (Page {_currentPage})"
+            : _newBookmarkName.Trim();
+
+        var result = await ApiClient.AddBookmarkAsync(BookId, nameToSave, _currentPage);
+        if (result.IsSuccess && result.Data is not null)
+        {
+            _bookmarks.Add(result.Data);
+            _bookmarks = _bookmarks.OrderBy(b => b.PageNumber).ToList();
+            _newBookmarkName = string.Empty;
+            _statusMessage = $"Bookmark saved: '{result.Data.Name}' (Page {result.Data.PageNumber}).";
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Failed to create bookmark.";
+        }
+    }
+
+    private async Task HandleDeleteBookmarkAsync(Guid bookmarkId)
+    {
+        _errorMessage = null;
+        _statusMessage = null;
+
+        var result = await ApiClient.DeleteBookmarkAsync(BookId, bookmarkId);
+        if (result.IsSuccess)
+        {
+            _bookmarks.RemoveAll(b => b.Id == bookmarkId);
+            _statusMessage = "Bookmark deleted.";
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Failed to delete bookmark.";
+        }
+    }
+}

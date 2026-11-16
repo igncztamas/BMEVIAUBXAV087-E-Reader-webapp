@@ -1,0 +1,14 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/EbookReader.Backend/EbookReader.Backend.csproj" />
+    <Project Path="src/EbookReader.Frontend/EbookReader.Frontend.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EbookReader.Tests/EbookReader.Tests.csproj" />
+  </Folder>
+</Solution>
