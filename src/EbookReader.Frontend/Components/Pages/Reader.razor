@@ -129,6 +129,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
+        await Session.EnsureInitializedAsync();
         if (!Session.IsAuthenticated)
         {
             _isLoading = false;

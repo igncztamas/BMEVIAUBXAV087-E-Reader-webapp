@@ -31,11 +31,11 @@
                 <input id="book-title" class="form-control" @bind="_customTitle" />
             </div>
             <div class="form-group" style="margin-bottom: 0;">
-                <label for="book-file">Select File (.pdf, .epub – max. 10 MB)</label>
-                <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" />
+                <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
+                <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" multiple />
             </div>
             <div>
-                <button class="btn btn-primary" @onclick="HandleUploadSelectedFileAsync" disabled="@(_selectedFileBytes is null || _isBusy)">
+                <button class="btn btn-primary" @onclick="HandleUploadSelectedFilesAsync" disabled="@(_selectedFiles.Count == 0 || _isBusy)">
                     Upload
                 </button>
             </div>
@@ -87,8 +87,7 @@
 @code {
     private List<BookSummaryItemDto> _books = new();
     private string? _customTitle;
-    private string? _selectedFileName;
-    private byte[]? _selectedFileBytes;
+    private List<(string Name, byte[] Bytes)> _selectedFiles = new();
     private string? _errorMessage;
     private string? _successMessage;
     private bool _isBusy;
@@ -96,6 +95,7 @@
     protected override async Task OnInitializedAsync()
     {
         Session.OnChange += HandleSessionChanged;
+        await Session.EnsureInitializedAsync();
         if (!Session.IsAuthenticated)
         {
             Navigation.NavigateTo("/login");
@@ -134,62 +134,101 @@
 
     private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
     {
+        _selectedFiles.Clear();
         _errorMessage = null;
         _successMessage = null;
 
-        var file = e.File;
-        _selectedFileName = file.Name;
-
+        var errors = new List<string>();
+        IReadOnlyList<IBrowserFile> files;
         try
         {
-            using var stream = file.OpenReadStream(maxAllowedSize: 12 * 1024 * 1024);
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms);
-            _selectedFileBytes = ms.ToArray();
+            files = e.GetMultipleFiles(maximumFileCount: 50);
         }
         catch (Exception ex)
         {
-            _selectedFileBytes = null;
-            _errorMessage = $"The selected file is too large or unreadable: {ex.Message}";
+            _errorMessage = $"Error selecting files: {ex.Message}";
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            try
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 12 * 1024 * 1024);
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                _selectedFiles.Add((file.Name, ms.ToArray()));
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{file.Name}: {ex.Message}");
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            _errorMessage = string.Join(" | ", errors);
         }
     }
 
-    private async Task HandleUploadSelectedFileAsync()
+    private async Task HandleUploadSelectedFilesAsync()
     {
-        if (string.IsNullOrWhiteSpace(_selectedFileName) || _selectedFileBytes is null)
+        if (_selectedFiles.Count == 0)
         {
             _errorMessage = "Please select a file first!";
             return;
         }
 
-        await UploadBookBytesAsync(_selectedFileName, _selectedFileBytes, _customTitle);
-    }
-
-    private async Task UploadBookBytesAsync(string fileName, byte[] bytes, string? title)
-    {
         _errorMessage = null;
         _successMessage = null;
         _isBusy = true;
 
+        var uploadedTitles = new List<string>();
+        var errors = new List<string>();
+        BookDetailItemDto? lastUploadedBook = null;
+
         try
         {
-            var result = await ApiClient.UploadBookAsync(fileName, bytes, title);
-            if (result.IsSuccess && result.Data is not null)
+            var singleCustomTitle = _selectedFiles.Count == 1 ? _customTitle : null;
+
+            foreach (var item in _selectedFiles)
             {
-                _successMessage = $"Successfully uploaded: '{result.Data.Title}' ({result.Data.Format}, {result.Data.TotalPages} pages).";
-                _customTitle = null;
-                _selectedFileBytes = null;
-                _selectedFileName = null;
-                await LoadBooksAsync();
+                try
+                {
+                    var result = await ApiClient.UploadBookAsync(item.Name, item.Bytes, singleCustomTitle);
+                    if (result.IsSuccess && result.Data is not null)
+                    {
+                        lastUploadedBook = result.Data;
+                        uploadedTitles.Add(result.Data.Title);
+                    }
+                    else
+                    {
+                        errors.Add($"{item.Name}: {result.ErrorMessage ?? "Failed to upload file."}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{item.Name}: {ex.Message}");
+                }
             }
-            else
+
+            if (uploadedTitles.Count == 1 && lastUploadedBook is not null)
             {
-                _errorMessage = result.ErrorMessage ?? "Failed to upload file.";
+                _successMessage = $"Successfully uploaded: '{lastUploadedBook.Title}' ({lastUploadedBook.Format}, {lastUploadedBook.TotalPages} pages).";
             }
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Network error during upload: {ex.Message}";
+            else if (uploadedTitles.Count > 1)
+            {
+                _successMessage = $"Successfully uploaded {uploadedTitles.Count} books: {string.Join(", ", uploadedTitles)}.";
+            }
+
+            if (errors.Count > 0)
+            {
+                _errorMessage = string.Join(" | ", errors);
+            }
+
+            _selectedFiles.Clear();
+            _customTitle = null;
+            await LoadBooksAsync();
         }
         finally
         {

@@ -26,9 +26,10 @@
 </main>
 
 @code {
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         Session.OnChange += StateHasChanged;
+        await Session.EnsureInitializedAsync();
     }
 
     private async Task HandleLogoutAsync()

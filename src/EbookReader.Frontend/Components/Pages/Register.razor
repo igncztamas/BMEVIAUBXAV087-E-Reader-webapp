@@ -38,8 +38,9 @@
     private string? _errorMessage;
     private bool _isSubmitting;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        await Session.EnsureInitializedAsync();
         if (Session.IsAuthenticated)
         {
             Navigation.NavigateTo("/");
