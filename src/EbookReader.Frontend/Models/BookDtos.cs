@@ -1,19 +1,11 @@
-namespace EbookReader.Backend.Models;
+namespace EbookReader.Frontend.Models;
 
-public record RegisterRequest(string Username, string Password);
-
-public record LoginRequest(string Username, string Password);
-
-public record UserDto(Guid Id, string Username);
-
-public record AuthResponse(string Token, UserDto User);
-
-public record UploadBookRequest(
+public record UploadBookRequestDto(
     string FileName,
     string FileBytesBase64,
     string? Title = null);
 
-public record BookSummaryDto(
+public record BookSummaryItemDto(
     Guid Id,
     Guid UserId,
     string Title,
@@ -28,7 +20,7 @@ public record BookSummaryDto(
     string? Author = null,
     int ZoomLevel = 100);
 
-public record BookmarkDto(
+public record BookmarkItemDto(
     Guid Id,
     Guid BookId,
     string Name,
@@ -37,7 +29,7 @@ public record BookmarkDto(
 
 public record TocItemDto(string Title, int PageNumber, int Level);
 
-public record BookDetailDto(
+public record BookDetailItemDto(
     Guid Id,
     Guid UserId,
     string Title,
@@ -49,12 +41,12 @@ public record BookDetailDto(
     string CurrentPageContent,
     DateTimeOffset LastPositionUpdatedAtUtc,
     DateTimeOffset UploadedAtUtc,
-    List<BookmarkDto> Bookmarks,
+    List<BookmarkItemDto> Bookmarks,
     string? Author = null,
     int ZoomLevel = 100,
     List<TocItemDto>? TableOfContents = null);
 
-public record BookPageDto(
+public record BookPageItemDto(
     Guid BookId,
     int RequestedPageNumber,
     int PageNumber,
@@ -62,12 +54,12 @@ public record BookPageDto(
     string Content,
     bool WasClamped);
 
-public record UpdateProgressRequest(
+public record UpdateProgressRequestDto(
     int PageNumber,
     DateTimeOffset? ClientTimestampUtc = null,
     int? ZoomLevel = null);
 
-public record UpdateProgressResponse(
+public record UpdateProgressResponseDto(
     Guid BookId,
     int CurrentPage,
     int TotalPages,
@@ -76,34 +68,6 @@ public record UpdateProgressResponse(
     bool WasClamped,
     int ZoomLevel = 100);
 
-public record CreateBookmarkRequest(
+public record CreateBookmarkRequestDto(
     string Name,
     int PageNumber);
-
-public record ApiErrorResponse(
-    string Error,
-    string Code);
-
-public class ServiceResult<T>
-{
-    public bool IsSuccess { get; init; }
-    public int StatusCode { get; init; }
-    public string? ErrorMessage { get; init; }
-    public string? ErrorCode { get; init; }
-    public T? Data { get; init; }
-
-    public static ServiceResult<T> Success(T data, int statusCode = 200) => new()
-    {
-        IsSuccess = true,
-        StatusCode = statusCode,
-        Data = data
-    };
-
-    public static ServiceResult<T> Failure(int statusCode, string errorCode, string errorMessage) => new()
-    {
-        IsSuccess = false,
-        StatusCode = statusCode,
-        ErrorCode = errorCode,
-        ErrorMessage = errorMessage
-    };
-}

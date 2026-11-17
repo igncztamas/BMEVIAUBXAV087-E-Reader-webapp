@@ -1,0 +1,45 @@
+@using EbookReader.Frontend.Models
+
+<aside class="left-sidebar">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-weight: 700; font-size: 0.95rem;">📑 Table of Contents</span>
+        <button class="btn btn-outline btn-sm" title="Collapse Table of Contents" @onclick="OnCollapse">◀</button>
+    </div>
+
+    @if (TableOfContents is null || TableOfContents.Count == 0)
+    {
+        <p style="font-size: 0.88rem; color: var(--muted); margin: 0;">No table of contents available for this document.</p>
+    }
+    else
+    {
+        var activeItem = TableOfContents.Where(t => t.PageNumber <= CurrentPage).LastOrDefault();
+        <ul class="toc-list">
+            @foreach (var item in TableOfContents)
+            {
+                var isActive = activeItem == item;
+                <li class="toc-item @(isActive ? "active" : "")">
+                    <button class="toc-btn @(isActive ? "active" : "")"
+                            style="padding-left: @(0.6 + item.Level * 0.85)rem;"
+                            @onclick="() => OnNavigateToPage.InvokeAsync(item.PageNumber)">
+                        <span>@item.Title</span>
+                        <span class="toc-page-num">@item.PageNumber</span>
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+</aside>
+
+@code {
+    [Parameter]
+    public List<TocItemDto>? TableOfContents { get; set; }
+
+    [Parameter]
+    public int CurrentPage { get; set; }
+
+    [Parameter]
+    public EventCallback OnCollapse { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnNavigateToPage { get; set; }
+}

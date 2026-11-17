@@ -20,17 +20,18 @@ You are the Frontend Subagent responsible exclusively for `/home/igncz/Projects/
 - You may ONLY read, create, or modify files inside `/home/igncz/Projects/vibe/src/EbookReader.Frontend/`.
 - Do NOT modify files in `src/EbookReader.Backend` or `tests/EbookReader.Tests`.
 - Always apply changes directly to disk using `edit_file` (preferred for targeted edits) or `write_file`. Do NOT dump full file contents into your chat response; return a concise summary of what you changed.
-- Never add test-only or demo-only functions or sample generators to the frontend codebase.
+- Never add test-only or demo-only functions, nullable test bypasses, or sample generators to the frontend codebase.
 
-## Architecture & Interfaces
-- `Services/UserSessionService.cs` (`IUserSessionService`): Manages current user state (`CurrentUser`, `Token`, `IsAuthenticated`, `OnChange`).
-- `Services/EbookApiClient.cs` (`IEbookApiClient`): Communicates with the Backend REST API (`/api/auth/*`, `/api/books/*`) using `HttpClient` and attaches `Authorization: Bearer <token>`.
-- `Models/FrontendDtos.cs`: Client-side DTOs and `ApiCallResult<T>`.
+## Architecture & File Layout
+- `Models/`: `ApiCallResult.cs`, `AuthDtos.cs`, `BookDtos.cs`, `StoredUserSession.cs`.
+- `Services/`: `IUserSessionService.cs`, `UserSessionService.cs`, `IEbookApiClient.cs`, `EbookApiClient.cs`.
+- `Components/Layout/MainLayout.razor`: Top navbar (dynamic title, dark mode toggle, auto-hide in reader) and app shell.
 - `Components/Pages/`:
-  - `Home.razor` (`/` and `/library`): Redirects to `/login` when unauthenticated; personal book library and `<InputFile>` upload form for authenticated users.
-  - `Login.razor` (`/login`) & `Register.razor` (`/register`): Authentication pages.
-  - `Reader.razor` (`/reader/{BookId:guid}`): E-book reader view with automatic position loading/saving, page navigation/jumping, and bookmark creation/jumping/deletion.
-- `Program.cs`: Single-command host startup binding `http://localhost:5060` (and `http://localhost:5050` if not already in use).
+  - `Home.razor` (`/` and `/library`): Uses `Components/Library/BookCard.razor` and `Components/Library/UploadSidebar.razor`.
+  - `Login.razor` (`/login`) & `Register.razor` (`/register`).
+  - `Reader.razor` (`/reader/{BookId:guid}`): Orchestrates `#ebook-render-target` with `Components/Reader/TocSidebar.razor` and `Components/Reader/ReaderControlsSidebar.razor`.
+- `wwwroot/`: `app.css` and `ebook-renderer.js` (`PDF.js` canvas + text layer, EPUB `.epub-page-sheet`, `ebookTheme`).
+- `Program.cs`: Single-command host startup binding `http://localhost:5060` (and `http://localhost:5050` if available).
 
 ## Verification & Context Window Reporting
 1. Always verify your changes compile cleanly using:

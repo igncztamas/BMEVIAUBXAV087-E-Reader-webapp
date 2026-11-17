@@ -1,0 +1,136 @@
+@using EbookReader.Frontend.Models
+
+<aside class="right-sidebar">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <a class="btn btn-outline btn-sm" href="/">← Back to Library</a>
+        <span class="badge">@Format</span>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert" style="margin-bottom: 0;">@ErrorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(StatusMessage))
+    {
+        <div class="alert alert-success" role="status" style="margin-bottom: 0;">@StatusMessage</div>
+    }
+
+    <div class="card" style="margin-bottom: 0;">
+        <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
+            Page @CurrentPage / @TotalPages
+        </div>
+        @if (Format == "EPUB" && SubPageCount > 1)
+        {
+            <div style="font-size: 0.82rem; color: var(--muted); margin-top: -0.35rem; margin-bottom: 0.5rem;">Screen @SubPage / @SubPageCount</div>
+        }
+
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="OnPreviousPage" disabled="@(CurrentPage <= 1 && SubPage <= 1)">
+                ◀ Prev
+            </button>
+            <button class="btn btn-primary btn-sm" style="flex: 1;" @onclick="OnNextPage" disabled="@(CurrentPage >= TotalPages && SubPage >= SubPageCount)">
+                Next ▶
+            </button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <label for="jump-page-input" style="font-size: 0.85rem; font-weight: 600;">Jump:</label>
+            <input id="jump-page-input" type="number" class="form-control" style="width: 80px; padding: 0.35rem 0.5rem;" @bind="_jumpInput" />
+            <button class="btn btn-outline btn-sm" @onclick="HandleJump">Go</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 0;">
+        <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
+            @(Format == "EPUB" ? $"Font Size: {ZoomLevel}%" : $"Zoom: {ZoomLevel}%")
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="() => OnChangeZoom.InvokeAsync(-15)">−</button>
+            <button class="btn btn-outline btn-sm" style="flex: 1.2;" @onclick="OnResetZoom">100%</button>
+            <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="() => OnChangeZoom.InvokeAsync(15)">+</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 0;">
+        <h2 style="margin-top: 0; font-size: 1.15rem;">🔖 Bookmarks (@Bookmarks.Count)</h2>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0;">
+            Save current page (@CurrentPage) with a custom name:
+        </p>
+
+        <div class="form-group">
+            <label for="bookmark-name">Bookmark Name</label>
+            <input id="bookmark-name" class="form-control" @bind="_newBookmarkName" />
+        </div>
+
+        <button class="btn btn-primary" style="width: 100%; margin-bottom: 1rem;" @onclick="HandleCreateBookmark">
+            Create Bookmark (Page @CurrentPage)
+        </button>
+
+        @if (Bookmarks.Count == 0)
+        {
+            <p style="font-size: 0.88rem; color: var(--muted); text-align: center; margin: 1rem 0 0 0;">
+                No bookmarks saved for this book yet.
+            </p>
+        }
+        else
+        {
+            <ul class="bookmark-list">
+                @foreach (var bm in Bookmarks)
+                {
+                    <li class="bookmark-item">
+                        <button class="btn btn-outline btn-sm" style="flex: 1; justify-content: flex-start; text-align: left;"
+                                @onclick="() => OnNavigateToPage.InvokeAsync(bm.PageNumber)">
+                            <strong>Page @bm.PageNumber:</strong> @bm.Name
+                        </button>
+                        <button class="btn btn-danger btn-sm" title="Delete bookmark"
+                                @onclick="() => OnDeleteBookmark.InvokeAsync(bm.Id)">
+                            ✕
+                        </button>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter] public string Format { get; set; } = "PDF";
+    [Parameter] public int CurrentPage { get; set; } = 1;
+    [Parameter] public int TotalPages { get; set; } = 1;
+    [Parameter] public int SubPage { get; set; } = 1;
+    [Parameter] public int SubPageCount { get; set; } = 1;
+    [Parameter] public int ZoomLevel { get; set; } = 100;
+    [Parameter] public List<BookmarkItemDto> Bookmarks { get; set; } = new();
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public string? StatusMessage { get; set; }
+
+    [Parameter] public EventCallback OnPreviousPage { get; set; }
+    [Parameter] public EventCallback OnNextPage { get; set; }
+    [Parameter] public EventCallback<int> OnJumpToPage { get; set; }
+    [Parameter] public EventCallback<int> OnChangeZoom { get; set; }
+    [Parameter] public EventCallback OnResetZoom { get; set; }
+    [Parameter] public EventCallback<string> OnCreateBookmark { get; set; }
+    [Parameter] public EventCallback<Guid> OnDeleteBookmark { get; set; }
+    [Parameter] public EventCallback<int> OnNavigateToPage { get; set; }
+
+    private int _jumpInput = 1;
+    private string _newBookmarkName = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        _jumpInput = CurrentPage;
+    }
+
+    private async Task HandleJump()
+    {
+        await OnJumpToPage.InvokeAsync(_jumpInput);
+    }
+
+    private async Task HandleCreateBookmark()
+    {
+        var name = _newBookmarkName;
+        _newBookmarkName = string.Empty;
+        await OnCreateBookmark.InvokeAsync(name);
+    }
+}

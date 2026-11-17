@@ -1,0 +1,88 @@
+<aside class="left-sidebar library-left-sidebar">
+    <div class="card" style="margin-bottom: 0;">
+        <h2 style="margin-top: 0; font-size: 1.15rem;">🔍 Search Library</h2>
+
+        <div class="form-group">
+            <label for="library-search">Search</label>
+            <input id="library-search" type="search" class="form-control" value="@SearchQuery" @oninput="HandleQueryInput" />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0.5rem;">
+            <label style="display: block; font-weight: 600; margin-bottom: 0.35rem; font-size: 0.9rem;">Format</label>
+            <div style="display: flex; gap: 0.4rem;">
+                <button type="button"
+                        class="btn btn-sm @(FormatFilter == "ALL" ? "btn-primary" : "btn-outline")"
+                        style="flex: 1;"
+                        @onclick='() => SetFormatFilterAsync("ALL")'>
+                    All
+                </button>
+                <button type="button"
+                        class="btn btn-sm @(FormatFilter == "PDF" ? "btn-primary" : "btn-outline")"
+                        style="flex: 1;"
+                        @onclick='() => SetFormatFilterAsync("PDF")'>
+                    PDF
+                </button>
+                <button type="button"
+                        class="btn btn-sm @(FormatFilter == "EPUB" ? "btn-primary" : "btn-outline")"
+                        style="flex: 1;"
+                        @onclick='() => SetFormatFilterAsync("EPUB")'>
+                    EPUB
+                </button>
+            </div>
+        </div>
+
+        <div style="font-size: 0.85rem; color: var(--muted); margin-top: 0.85rem;">
+            Showing @FilteredCount of @TotalCount books
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(SearchQuery) || FormatFilter != "ALL")
+        {
+            <button type="button"
+                    class="btn btn-outline btn-sm"
+                    style="width: 100%; margin-top: 0.65rem;"
+                    @onclick="ClearFiltersAsync">
+                Clear Filters
+            </button>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter]
+    public string SearchQuery { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SearchQueryChanged { get; set; }
+
+    [Parameter]
+    public string FormatFilter { get; set; } = "ALL";
+
+    [Parameter]
+    public EventCallback<string> FormatFilterChanged { get; set; }
+
+    [Parameter]
+    public int FilteredCount { get; set; }
+
+    [Parameter]
+    public int TotalCount { get; set; }
+
+    private async Task HandleQueryInput(ChangeEventArgs e)
+    {
+        var query = e.Value?.ToString() ?? string.Empty;
+        await SearchQueryChanged.InvokeAsync(query);
+    }
+
+    private async Task SetFormatFilterAsync(string format)
+    {
+        if (FormatFilter != format)
+        {
+            await FormatFilterChanged.InvokeAsync(format);
+        }
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        await SearchQueryChanged.InvokeAsync(string.Empty);
+        await FormatFilterChanged.InvokeAsync("ALL");
+    }
+}

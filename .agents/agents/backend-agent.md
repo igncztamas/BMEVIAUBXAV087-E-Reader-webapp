@@ -20,17 +20,18 @@ You are the Backend Subagent responsible exclusively for `/home/igncz/Projects/v
 - You may ONLY read, create, or modify files inside `/home/igncz/Projects/vibe/src/EbookReader.Backend/`.
 - Do NOT read or modify files in `src/EbookReader.Frontend` or `tests/EbookReader.Tests`.
 - Always apply changes directly to disk using `edit_file` (preferred for targeted edits) or `write_file`. Do NOT dump full file contents into your chat response; return a concise summary of what you changed.
-- Never add test-only or demo-only functions, switches, or sample factories to the backend codebase.
+- Never add test-only or demo-only functions, switches, nullable test bypasses, or synthetic fallback parsers to the backend codebase.
 
-## Architecture & Interfaces
-- `Services/Interfaces.cs`: Defines `IDataStore`, `IEbookValidatorAndParser`, `IAuthService`, and `IBookService`.
-- `Models/EbookErrorCodes.cs`: Defines immutable error code constants (`EbookErrorCodes`) used across all `ServiceResult<T>.Failure(...)` responses.
-- `Models/DomainModels.cs` & `Models/ApiDtos.cs`: Domain models (`User`, `SessionToken`, `Book`, `Bookmark`, `DatabaseSnapshot`) and DTO records.
-- `Services/JsonDataStore.cs` (`IDataStore`): Thread-safe JSON persistence (`SemaphoreSlim`) to `App_Data/ebook_store.json`.
-- `Services/AuthService.cs` (`IAuthService`): User registration, PBKDF2-SHA256 salted password hashing, login, logout, and Bearer token validation.
-- `Services/EbookValidatorAndParser.cs` (`IEbookValidatorAndParser`): Extension validation (`.pdf`, `.epub`), size limit validation (`MaxFileSizeBytes`), structural integrity checks, and page text extraction.
-- `Services/BookService.cs` (`IBookService`): Library listing, book upload (duplicate filename/SHA-256 check -> `409 EbookErrorCodes.DuplicateBook`), ownership authorization (`403 EbookErrorCodes.ForbiddenBookAccess`), out-of-range page clamping (`Math.Clamp` to `1..TotalPages` without error), Last-Write-Wins reading position updates (`incomingTimestamp >= book.LastPositionUpdatedAtUtc`), and bookmark management (`409 EbookErrorCodes.DuplicateBookmark`).
-- `Program.cs`: Registers `AddEbookBackendServices` and maps `EbookApiEndpoints.MapEndpoints`.
+## Architecture & File Layout
+- `Models/Entities/`: One entity per file (`User.cs`, `SessionToken.cs`, `Book.cs`, `Bookmark.cs`, `TocItem.cs`, `DatabaseSnapshot.cs`).
+- `Models/Dtos/`: `AuthDtos.cs`, `BookDtos.cs`, `BookMapper.cs`, plus `Models/ServiceResult.cs` and `Models/EbookErrorCodes.cs`.
+- `Data/EbookDbContext.cs`: EF Core SQLite `DbContext`.
+- `Services/Interfaces/`: `IDataStore.cs`, `IEbookValidatorAndParser.cs`, `IAuthService.cs`, `IBookService.cs`, `ParsedEbook.cs`.
+- `Services/JsonDataStore.cs` (`IDataStore`): Thread-safe SQLite persistence (`SemaphoreSlim`) + `Services/DataStoreBackfillHelper.cs`.
+- `Services/AuthService.cs` (`IAuthService`): Registration, PBKDF2-SHA256 salted password hashing, login, logout, and Bearer token validation.
+- `Services/EbookValidatorAndParser.cs` (`IEbookValidatorAndParser`): File validation and delegation to `Services/Parsing/` (`PdfEbookParser.cs`, `PdfPageContentExtractor.cs`, `EpubEbookParser.cs`, `HtmlPaginator.cs`).
+- `Services/BookService.cs` (`IBookService`) + `Services/BookAccessHelper.cs`: Library management, duplicate checks, ownership authorization (`403`), page clamping, Last-Write-Wins progress/zoom persistence, file streaming, and bookmarks.
+- `Endpoints/EbookApiEndpoints.cs` & `Extensions/BackendServiceCollectionExtensions.cs` & `Program.cs`: Minimal API routing and DI setup.
 
 ## Verification & Context Window Reporting
 1. Always verify your changes compile cleanly using:

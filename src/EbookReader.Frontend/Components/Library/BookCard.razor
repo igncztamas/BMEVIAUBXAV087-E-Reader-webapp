@@ -1,0 +1,51 @@
+@using EbookReader.Frontend.Models
+
+<div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+        <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
+            <h3 style="margin: 0 0 0.35rem 0; font-size: 1.15rem;">@Book.Title</h3>
+            <span class="badge">@Book.Format</span>
+        </div>
+        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
+            @(string.IsNullOrWhiteSpace(Book.Author) ? Book.FileName : Book.Author) (@FormatSize(Book.FileSizeBytes))
+        </p>
+        <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
+            Reading position: <strong>Page @Book.CurrentPage / @Book.TotalPages</strong>
+        </p>
+        <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--muted);">
+            Bookmarks: @Book.BookmarkCount
+        </p>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem;">
+        @if (OnOpen.HasDelegate)
+        {
+            <button class="btn btn-primary btn-sm" style="flex: 1;" @onclick="() => OnOpen.InvokeAsync(Book)">
+                📖 Open (Page @Book.CurrentPage)
+            </button>
+        }
+        else
+        {
+            <a class="btn btn-primary btn-sm" style="flex: 1;" href="/reader/@Book.Id">
+                📖 Open (Page @Book.CurrentPage)
+            </a>
+        }
+        <button class="btn btn-danger btn-sm" @onclick="() => OnDelete.InvokeAsync(Book.Id)">
+            Delete
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public BookSummaryItemDto Book { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<BookSummaryItemDto> OnOpen { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> OnDelete { get; set; }
+
+    private static string FormatSize(long bytes) =>
+        bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024.0:F1} KB";
+}

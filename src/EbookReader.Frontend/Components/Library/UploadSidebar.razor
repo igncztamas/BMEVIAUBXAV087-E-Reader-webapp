@@ -1,0 +1,139 @@
+@using EbookReader.Frontend.Models
+@using EbookReader.Frontend.Services
+@inject EbookApiClient ApiClient
+
+<aside class="right-sidebar">
+    <div class="card" style="margin-bottom: 0;">
+        <h2 style="margin-top: 0; font-size: 1.15rem;">Upload New E-book (PDF / EPUB)</h2>
+        <div class="form-group">
+            <label for="book-title">Book Title (optional)</label>
+            <input id="book-title" class="form-control" @bind="_customTitle" />
+        </div>
+        <div class="form-group">
+            <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
+            <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" multiple />
+        </div>
+        <button class="btn btn-primary" style="width: 100%;" @onclick="HandleUploadSelectedFilesAsync" disabled="@(_selectedFiles.Count == 0 || _isBusy)">
+            @(_isBusy ? "Uploading..." : "Upload")
+        </button>
+    </div>
+</aside>
+
+@code {
+    [Parameter]
+    public EventCallback OnBooksChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> OnErrorMessage { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> OnSuccessMessage { get; set; }
+
+    private string? _customTitle;
+    private readonly List<(string Name, byte[] Bytes)> _selectedFiles = new();
+    private bool _isBusy;
+
+    private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _selectedFiles.Clear();
+        await OnErrorMessage.InvokeAsync(null);
+        await OnSuccessMessage.InvokeAsync(null);
+
+        var errors = new List<string>();
+        IReadOnlyList<IBrowserFile> files;
+        try
+        {
+            files = e.GetMultipleFiles(maximumFileCount: 50);
+        }
+        catch (Exception ex)
+        {
+            await OnErrorMessage.InvokeAsync($"Error selecting files: {ex.Message}");
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            try
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 12 * 1024 * 1024);
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                _selectedFiles.Add((file.Name, ms.ToArray()));
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{file.Name}: {ex.Message}");
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            await OnErrorMessage.InvokeAsync(string.Join(" | ", errors));
+        }
+    }
+
+    private async Task HandleUploadSelectedFilesAsync()
+    {
+        if (_selectedFiles.Count == 0)
+        {
+            await OnErrorMessage.InvokeAsync("Please select a file first!");
+            return;
+        }
+
+        await OnErrorMessage.InvokeAsync(null);
+        await OnSuccessMessage.InvokeAsync(null);
+        _isBusy = true;
+
+        var uploadedTitles = new List<string>();
+        var errors = new List<string>();
+        BookDetailItemDto? lastUploadedBook = null;
+
+        try
+        {
+            var singleCustomTitle = _selectedFiles.Count == 1 ? _customTitle : null;
+
+            foreach (var item in _selectedFiles)
+            {
+                try
+                {
+                    var result = await ApiClient.UploadBookAsync(item.Name, item.Bytes, singleCustomTitle);
+                    if (result.IsSuccess && result.Data is not null)
+                    {
+                        lastUploadedBook = result.Data;
+                        uploadedTitles.Add(result.Data.Title);
+                    }
+                    else
+                    {
+                        errors.Add($"{item.Name}: {result.ErrorMessage ?? "Failed to upload file."}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{item.Name}: {ex.Message}");
+                }
+            }
+
+            if (uploadedTitles.Count == 1 && lastUploadedBook is not null)
+            {
+                await OnSuccessMessage.InvokeAsync($"Successfully uploaded: '{lastUploadedBook.Title}' ({lastUploadedBook.Format}, {lastUploadedBook.TotalPages} pages).");
+            }
+            else if (uploadedTitles.Count > 1)
+            {
+                await OnSuccessMessage.InvokeAsync($"Successfully uploaded {uploadedTitles.Count} books: {string.Join(", ", uploadedTitles)}.");
+            }
+
+            if (errors.Count > 0)
+            {
+                await OnErrorMessage.InvokeAsync(string.Join(" | ", errors));
+            }
+
+            _selectedFiles.Clear();
+            _customTitle = null;
+            await OnBooksChanged.InvokeAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

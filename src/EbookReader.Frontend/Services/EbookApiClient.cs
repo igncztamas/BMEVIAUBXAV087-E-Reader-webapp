@@ -4,21 +4,6 @@ using EbookReader.Frontend.Models;
 
 namespace EbookReader.Frontend.Services;
 
-public interface IEbookApiClient
-{
-    Task<ApiCallResult<AuthResponseDto>> RegisterAsync(string username, string password);
-    Task<ApiCallResult<AuthResponseDto>> LoginAsync(string username, string password);
-    Task LogoutAsync();
-    Task<ApiCallResult<List<BookSummaryItemDto>>> GetBooksAsync();
-    Task<ApiCallResult<BookDetailItemDto>> UploadBookAsync(string fileName, byte[] fileBytes, string? title = null);
-    Task<ApiCallResult<BookDetailItemDto>> GetBookDetailAsync(Guid bookId);
-    Task<ApiCallResult<BookPageItemDto>> GetBookPageAsync(Guid bookId, int pageNumber);
-    Task<ApiCallResult<UpdateProgressResponseDto>> UpdateProgressAsync(Guid bookId, int pageNumber, DateTimeOffset? clientTimestampUtc = null, int? zoomLevel = null);
-    Task<ApiCallResult<BookmarkItemDto>> AddBookmarkAsync(Guid bookId, string name, int pageNumber);
-    Task<ApiCallResult<bool>> DeleteBookmarkAsync(Guid bookId, Guid bookmarkId);
-    Task<ApiCallResult<bool>> DeleteBookAsync(Guid bookId);
-}
-
 public class EbookApiClient : IEbookApiClient
 {
     private readonly HttpClient _httpClient;
@@ -68,71 +53,52 @@ public class EbookApiClient : IEbookApiClient
         }
     }
 
-    public async Task<ApiCallResult<List<BookSummaryItemDto>>> GetBooksAsync()
-    {
-        using var req = CreateAuthorizedRequest(HttpMethod.Get, "/api/books");
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<List<BookSummaryItemDto>>(response);
-    }
+    public Task<ApiCallResult<List<BookSummaryItemDto>>> GetBooksAsync() =>
+        SendAsync<List<BookSummaryItemDto>>(HttpMethod.Get, "/api/books");
 
-    public async Task<ApiCallResult<BookDetailItemDto>> UploadBookAsync(string fileName, byte[] fileBytes, string? title = null)
+    public Task<ApiCallResult<BookDetailItemDto>> UploadBookAsync(string fileName, byte[] fileBytes, string? title = null)
     {
-        using var req = CreateAuthorizedRequest(HttpMethod.Post, "/api/books");
         var payload = new UploadBookRequestDto(
             fileName,
             Convert.ToBase64String(fileBytes),
             title);
-        req.Content = JsonContent.Create(payload);
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<BookDetailItemDto>(response);
+        return SendAsync<BookDetailItemDto>(HttpMethod.Post, "/api/books", payload);
     }
 
-    public async Task<ApiCallResult<BookDetailItemDto>> GetBookDetailAsync(Guid bookId)
-    {
-        using var req = CreateAuthorizedRequest(HttpMethod.Get, $"/api/books/{bookId}");
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<BookDetailItemDto>(response);
-    }
+    public Task<ApiCallResult<BookDetailItemDto>> GetBookDetailAsync(Guid bookId) =>
+        SendAsync<BookDetailItemDto>(HttpMethod.Get, $"/api/books/{bookId}");
 
-    public async Task<ApiCallResult<BookPageItemDto>> GetBookPageAsync(Guid bookId, int pageNumber)
-    {
-        using var req = CreateAuthorizedRequest(HttpMethod.Get, $"/api/books/{bookId}/pages/{pageNumber}");
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<BookPageItemDto>(response);
-    }
+    public Task<ApiCallResult<BookPageItemDto>> GetBookPageAsync(Guid bookId, int pageNumber) =>
+        SendAsync<BookPageItemDto>(HttpMethod.Get, $"/api/books/{bookId}/pages/{pageNumber}");
 
-    public async Task<ApiCallResult<UpdateProgressResponseDto>> UpdateProgressAsync(
+    public Task<ApiCallResult<UpdateProgressResponseDto>> UpdateProgressAsync(
         Guid bookId,
         int pageNumber,
         DateTimeOffset? clientTimestampUtc = null,
         int? zoomLevel = null)
     {
-        using var req = CreateAuthorizedRequest(HttpMethod.Put, $"/api/books/{bookId}/progress");
-        req.Content = JsonContent.Create(new UpdateProgressRequestDto(pageNumber, clientTimestampUtc ?? DateTimeOffset.UtcNow, zoomLevel));
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<UpdateProgressResponseDto>(response);
+        var payload = new UpdateProgressRequestDto(pageNumber, clientTimestampUtc ?? DateTimeOffset.UtcNow, zoomLevel);
+        return SendAsync<UpdateProgressResponseDto>(HttpMethod.Put, $"/api/books/{bookId}/progress", payload);
     }
 
-    public async Task<ApiCallResult<BookmarkItemDto>> AddBookmarkAsync(Guid bookId, string name, int pageNumber)
-    {
-        using var req = CreateAuthorizedRequest(HttpMethod.Post, $"/api/books/{bookId}/bookmarks");
-        req.Content = JsonContent.Create(new CreateBookmarkRequestDto(name, pageNumber));
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<BookmarkItemDto>(response);
-    }
+    public Task<ApiCallResult<BookmarkItemDto>> AddBookmarkAsync(Guid bookId, string name, int pageNumber) =>
+        SendAsync<BookmarkItemDto>(HttpMethod.Post, $"/api/books/{bookId}/bookmarks", new CreateBookmarkRequestDto(name, pageNumber));
 
-    public async Task<ApiCallResult<bool>> DeleteBookmarkAsync(Guid bookId, Guid bookmarkId)
-    {
-        using var req = CreateAuthorizedRequest(HttpMethod.Delete, $"/api/books/{bookId}/bookmarks/{bookmarkId}");
-        var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<bool>(response);
-    }
+    public Task<ApiCallResult<bool>> DeleteBookmarkAsync(Guid bookId, Guid bookmarkId) =>
+        SendAsync<bool>(HttpMethod.Delete, $"/api/books/{bookId}/bookmarks/{bookmarkId}");
 
-    public async Task<ApiCallResult<bool>> DeleteBookAsync(Guid bookId)
+    public Task<ApiCallResult<bool>> DeleteBookAsync(Guid bookId) =>
+        SendAsync<bool>(HttpMethod.Delete, $"/api/books/{bookId}");
+
+    private async Task<ApiCallResult<T>> SendAsync<T>(HttpMethod method, string url, object? payload = null)
     {
-        using var req = CreateAuthorizedRequest(HttpMethod.Delete, $"/api/books/{bookId}");
+        using var req = CreateAuthorizedRequest(method, url);
+        if (payload is not null)
+        {
+            req.Content = JsonContent.Create(payload);
+        }
         var response = await _httpClient.SendAsync(req);
-        return await ReadResponseAsync<bool>(response);
+        return await ReadResponseAsync<T>(response);
     }
 
     private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string relativeUrl)

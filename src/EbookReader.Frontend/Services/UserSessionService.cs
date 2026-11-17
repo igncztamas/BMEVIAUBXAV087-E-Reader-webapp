@@ -3,41 +3,11 @@ using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 
 namespace EbookReader.Frontend.Services;
 
-public class StoredUserSession
-{
-    public string Token { get; set; } = string.Empty;
-    public UserInfoDto? User { get; set; }
-
-    public StoredUserSession() { }
-
-    public StoredUserSession(string token, UserInfoDto user)
-    {
-        Token = token;
-        User = user;
-    }
-}
-
-public interface IUserSessionService
-{
-    string? Token { get; }
-    UserInfoDto? CurrentUser { get; }
-    bool IsAuthenticated { get; }
-    string HeaderTitle { get; }
-    bool IsDarkMode { get; }
-    event Action? OnChange;
-    Task EnsureInitializedAsync();
-    void SetSession(string token, UserInfoDto user);
-    void ClearSession();
-    void SetHeaderTitle(string title);
-    void SetDarkMode(bool isDark);
-    void ToggleDarkMode();
-}
-
 public class UserSessionService : IUserSessionService
 {
     private const string StorageKey = "ebook_auth_session";
     private const string DarkModeStorageKey = "ebook_dark_mode";
-    private readonly ProtectedLocalStorage? _storage;
+    private readonly ProtectedLocalStorage _storage;
     private bool _initialized;
     private Task? _initTask;
 
@@ -48,6 +18,12 @@ public class UserSessionService : IUserSessionService
     public bool IsDarkMode { get; private set; }
 
     public event Action? OnChange;
+
+    public UserSessionService(ProtectedLocalStorage storage)
+    {
+        ArgumentNullException.ThrowIfNull(storage);
+        _storage = storage;
+    }
 
     public void SetHeaderTitle(string title)
     {
@@ -64,24 +40,15 @@ public class UserSessionService : IUserSessionService
         {
             IsDarkMode = isDark;
             OnChange?.Invoke();
-
-            if (_storage is not null)
-            {
-                _ = SaveDarkModeAsync(isDark);
-            }
+            _ = SaveDarkModeAsync(isDark);
         }
     }
 
     public void ToggleDarkMode() => SetDarkMode(!IsDarkMode);
 
-    public UserSessionService(ProtectedLocalStorage? storage = null)
-    {
-        _storage = storage;
-    }
-
     public Task EnsureInitializedAsync()
     {
-        if (_initialized || _storage is null)
+        if (_initialized)
         {
             return Task.CompletedTask;
         }
@@ -93,7 +60,7 @@ public class UserSessionService : IUserSessionService
     {
         try
         {
-            var result = await _storage!.GetAsync<StoredUserSession>(StorageKey);
+            var result = await _storage.GetAsync<StoredUserSession>(StorageKey);
             if (!_initialized && result.Success && result.Value is not null && !string.IsNullOrWhiteSpace(result.Value.Token) && result.Value.User is not null)
             {
                 Token = result.Value.Token;
@@ -103,7 +70,7 @@ public class UserSessionService : IUserSessionService
 
             try
             {
-                var darkResult = await _storage!.GetAsync<bool>(DarkModeStorageKey);
+                var darkResult = await _storage.GetAsync<bool>(DarkModeStorageKey);
                 if (darkResult.Success)
                 {
                     IsDarkMode = darkResult.Value;
@@ -131,11 +98,7 @@ public class UserSessionService : IUserSessionService
         _initialized = true;
         _initTask = Task.CompletedTask;
         OnChange?.Invoke();
-
-        if (_storage is not null)
-        {
-            _ = SaveStorageAsync(token, user);
-        }
+        _ = SaveStorageAsync(token, user);
     }
 
     public void ClearSession()
@@ -145,18 +108,14 @@ public class UserSessionService : IUserSessionService
         _initialized = true;
         _initTask = Task.CompletedTask;
         OnChange?.Invoke();
-
-        if (_storage is not null)
-        {
-            _ = DeleteStorageAsync();
-        }
+        _ = DeleteStorageAsync();
     }
 
     private async Task SaveStorageAsync(string token, UserInfoDto user)
     {
         try
         {
-            await _storage!.SetAsync(StorageKey, new StoredUserSession(token, user));
+            await _storage.SetAsync(StorageKey, new StoredUserSession(token, user));
         }
         catch
         {
@@ -167,7 +126,7 @@ public class UserSessionService : IUserSessionService
     {
         try
         {
-            await _storage!.DeleteAsync(StorageKey);
+            await _storage.DeleteAsync(StorageKey);
         }
         catch
         {
@@ -178,7 +137,7 @@ public class UserSessionService : IUserSessionService
     {
         try
         {
-            await _storage!.SetAsync(DarkModeStorageKey, isDark);
+            await _storage.SetAsync(DarkModeStorageKey, isDark);
         }
         catch
         {

@@ -1,7 +1,7 @@
+namespace EbookReader.Backend.Services;
+
 using System.Security.Cryptography;
 using EbookReader.Backend.Models;
-
-namespace EbookReader.Backend.Services;
 
 public class AuthService : IAuthService
 {
@@ -115,16 +115,8 @@ public class AuthService : IAuthService
 
     public async Task<UserDto?> ValidateTokenAsync(string? token)
     {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return null;
-        }
-
-        var normalized = token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? token["Bearer ".Length..].Trim()
-            : token.Trim();
-
-        if (string.IsNullOrWhiteSpace(normalized))
+        var normalized = NormalizeToken(token);
+        if (normalized is null)
         {
             return null;
         }
@@ -142,20 +134,31 @@ public class AuthService : IAuthService
 
     public async Task LogoutAsync(string? token)
     {
-        if (string.IsNullOrWhiteSpace(token))
+        var normalized = NormalizeToken(token);
+        if (normalized is null)
         {
             return;
         }
-
-        var normalized = token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? token["Bearer ".Length..].Trim()
-            : token.Trim();
 
         await _dataStore.WriteAsync(db =>
         {
             db.Sessions.RemoveAll(s => s.Token.Equals(normalized, StringComparison.Ordinal));
             return true;
         });
+    }
+
+    private static string? NormalizeToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        var normalized = token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? token["Bearer ".Length..].Trim()
+            : token.Trim();
+
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
     private static SessionToken CreateSessionToken(User user)

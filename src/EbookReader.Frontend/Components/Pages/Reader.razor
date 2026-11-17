@@ -31,141 +31,44 @@ else if (_book is null)
 }
 else
 {
-    <div class="workspace-split" style="display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden;">
+    <div class="workspace-split">
         @if (_showToc)
         {
-            <aside class="left-sidebar" style="width: 270px; flex-shrink: 0; height: 100%; overflow-y: auto;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-weight: 700; font-size: 0.95rem;">📑 Table of Contents</span>
-                    <button class="btn btn-outline btn-sm" title="Collapse Table of Contents" @onclick="CollapseToc">◀</button>
-                </div>
-
-                @if (_book.TableOfContents is null || _book.TableOfContents.Count == 0)
-                {
-                    <p style="font-size: 0.88rem; color: var(--muted); margin: 0;">No table of contents available for this document.</p>
-                }
-                else
-                {
-                    var activeItem = _book.TableOfContents.Where(t => t.PageNumber <= _currentPage).LastOrDefault();
-                    <ul class="toc-list">
-                        @foreach (var item in _book.TableOfContents)
-                        {
-                            var isActive = activeItem == item;
-                            <li class="toc-item @(isActive ? "active" : "")">
-                                <button class="toc-btn @(isActive ? "active" : "")"
-                                        style="padding-left: @(0.6 + item.Level * 0.85)rem;"
-                                        @onclick="() => NavigateToPageAsync(item.PageNumber)">
-                                    <span>@item.Title</span>
-                                    <span class="toc-page-num">@item.PageNumber</span>
-                                </button>
-                            </li>
-                        }
-                    </ul>
-                }
-            </aside>
+            <TocSidebar TableOfContents="_book.TableOfContents"
+                        CurrentPage="_currentPage"
+                        OnCollapse="ToggleToc"
+                        OnNavigateToPage="JumpToBackendPageAsync" />
         }
 
-        <div class="reader-main-stage" style="flex: 1; height: 100%; overflow: auto; position: relative;">
+        <div class="reader-main-stage" style="position: relative;">
             @if (!_showToc)
             {
                 <button class="btn btn-outline btn-sm"
-                        style="position: absolute; top: 0.75rem; left: 0.75rem; z-index: 20; background: var(--surface, #ffffff); box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
-                        @onclick="ExpandToc">
+                        style="position: absolute; top: 0.75rem; left: 0.75rem; z-index: 20; background: var(--surface); box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                        @onclick="ToggleToc">
                     📑 Contents
                 </button>
             }
             <div id="ebook-render-target" class="reader-page-box"></div>
         </div>
 
-        <aside class="right-sidebar" style="width: 320px; flex-shrink: 0; height: 100%; overflow-y: auto; margin-left: auto;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <a class="btn btn-outline btn-sm" href="/">← Back to Library</a>
-                <span class="badge">@_book.Format</span>
-            </div>
-
-            @if (!string.IsNullOrWhiteSpace(_errorMessage))
-            {
-                <div class="alert alert-danger" role="alert" style="margin-bottom: 0;">@_errorMessage</div>
-            }
-
-            @if (!string.IsNullOrWhiteSpace(_statusMessage))
-            {
-                <div class="alert alert-success" role="status" style="margin-bottom: 0;">@_statusMessage</div>
-            }
-
-            <div class="card" style="margin-bottom: 0;">
-                <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                    Page @_currentPage / @_totalPages
-                </div>
-
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-                    <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="PreviousPageAsync" disabled="@(_currentPage <= 1)">
-                        ◀ Prev
-                    </button>
-                    <button class="btn btn-primary btn-sm" style="flex: 1;" @onclick="NextPageAsync" disabled="@(_currentPage >= _totalPages)">
-                        Next ▶
-                    </button>
-                </div>
-
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <label for="jump-page-input" style="font-size: 0.85rem; font-weight: 600;">Jump:</label>
-                    <input id="jump-page-input" type="number" class="form-control" style="width: 80px; padding: 0.35rem 0.5rem;" @bind="_jumpPageInput" />
-                    <button class="btn btn-outline btn-sm" @onclick="HandleJumpToPageAsync">Go</button>
-                </div>
-            </div>
-
-            <div class="card" style="margin-bottom: 0;">
-                <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                    @(_book.Format == "EPUB" ? $"Font Size: {_zoomLevel}%" : $"Zoom: {_zoomLevel}%")
-                </div>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="() => ChangeZoomAsync(-15)">−</button>
-                    <button class="btn btn-outline btn-sm" style="flex: 1.2;" @onclick="ResetZoomAsync">100%</button>
-                    <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="() => ChangeZoomAsync(15)">+</button>
-                </div>
-            </div>
-
-            <div class="card" style="margin-bottom: 0;">
-                <h2 style="margin-top: 0; font-size: 1.15rem;">🔖 Bookmarks (@_bookmarks.Count)</h2>
-                <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0;">
-                    Save current page (@_currentPage) with a custom name:
-                </p>
-
-                <div class="form-group">
-                    <label for="bookmark-name">Bookmark Name</label>
-                    <input id="bookmark-name" class="form-control" @bind="_newBookmarkName" />
-                </div>
-
-                <button class="btn btn-primary" style="width: 100%; margin-bottom: 1rem;" @onclick="HandleCreateBookmarkAsync">
-                    Create Bookmark (Page @_currentPage)
-                </button>
-
-                @if (_bookmarks.Count == 0)
-                {
-                    <p style="font-size: 0.88rem; color: var(--muted); text-align: center; margin: 1rem 0 0 0;">
-                        No bookmarks saved for this book yet.
-                    </p>
-                }
-                else
-                {
-                    <ul class="bookmark-list">
-                        @foreach (var bm in _bookmarks)
-                        {
-                            <li class="bookmark-item">
-                                <button class="btn btn-outline btn-sm" style="flex: 1; justify-content: flex-start; text-align: left;"
-                                        @onclick="() => NavigateToPageAsync(bm.PageNumber)">
-                                    <strong>Page @bm.PageNumber:</strong> @bm.Name
-                                </button>
-                                <button class="btn btn-danger btn-sm" title="Delete bookmark"
-                                        @onclick="() => HandleDeleteBookmarkAsync(bm.Id)">
-                                    ✕
-                                </button>
-                            </li>
-                        }
-                    </ul>
-                }
-            </div>
-        </aside>
+        <ReaderControlsSidebar Format="@_book.Format"
+                               CurrentPage="_currentPage"
+                               TotalPages="_totalPages"
+                               SubPage="_epubSubPage"
+                               SubPageCount="_epubSubPageCount"
+                               ZoomLevel="_zoomLevel"
+                               Bookmarks="_bookmarks"
+                               ErrorMessage="@_errorMessage"
+                               StatusMessage="@_statusMessage"
+                               OnPreviousPage="PreviousPageAsync"
+                               OnNextPage="NextPageAsync"
+                               OnJumpToPage="JumpToBackendPageAsync"
+                               OnChangeZoom="ChangeZoomAsync"
+                               OnResetZoom="ResetZoomAsync"
+                               OnCreateBookmark="HandleCreateBookmarkAsync"
+                               OnDeleteBookmark="HandleDeleteBookmarkAsync"
+                               OnNavigateToPage="JumpToBackendPageAsync" />
     </div>
 }
 
@@ -173,13 +76,16 @@ else
     [Parameter]
     public Guid BookId { get; set; }
 
+    private sealed record RenderPageResult(int SubPage, int SubPageCount);
+
     private BookDetailItemDto? _book;
     private int _currentPage = 1;
     private int _totalPages = 1;
-    private int _jumpPageInput = 1;
+    private int _epubSubPage = 1;
+    private int _epubSubPageCount = 1;
+    private int _requestedSubPage = 1;
     private string _currentPageContent = string.Empty;
     private List<BookmarkItemDto> _bookmarks = new();
-    private string _newBookmarkName = string.Empty;
     private string? _errorMessage;
     private string? _statusMessage;
     private bool _isLoading = true;
@@ -207,16 +113,24 @@ else
             var fileUrl = $"/api/books/{BookId}/file?token={Uri.EscapeDataString(Session.Token ?? string.Empty)}";
             try
             {
-                await JS.InvokeVoidAsync("ebookRenderer.renderPage", new
+                var renderResult = await JS.InvokeAsync<RenderPageResult?>("ebookRenderer.renderPage", new
                 {
                     targetId = "ebook-render-target",
                     bookId = BookId.ToString(),
                     format = _book.Format,
                     fileUrl,
                     pageNumber = _currentPage,
+                    subPage = _requestedSubPage,
                     fallbackHtml = _currentPageContent,
                     zoomLevel = _zoomLevel
                 });
+
+                if (renderResult is not null && (_epubSubPage != renderResult.SubPage || _epubSubPageCount != renderResult.SubPageCount))
+                {
+                    _epubSubPage = renderResult.SubPage;
+                    _epubSubPageCount = renderResult.SubPageCount;
+                    StateHasChanged();
+                }
             }
             catch
             {
@@ -236,7 +150,9 @@ else
             _book = result.Data;
             _currentPage = _book.CurrentPage;
             _totalPages = _book.TotalPages;
-            _jumpPageInput = _currentPage;
+            _requestedSubPage = 1;
+            _epubSubPage = 1;
+            _epubSubPageCount = 1;
             _currentPageContent = _book.CurrentPageContent;
             _bookmarks = _book.Bookmarks.OrderBy(b => b.PageNumber).ToList();
             _zoomLevel = _book.ZoomLevel > 0 ? _book.ZoomLevel : 100;
@@ -252,22 +168,59 @@ else
         _isLoading = false;
     }
 
-    private Task PreviousPageAsync() => NavigateToPageAsync(_currentPage - 1);
-
-    private Task NextPageAsync() => NavigateToPageAsync(_currentPage + 1);
-
-    private Task HandleJumpToPageAsync() => NavigateToPageAsync(_jumpPageInput);
-
-    private void CollapseToc()
+    private async Task PreviousPageAsync()
     {
-        _showToc = false;
-        _needsJsRender = true;
-        StateHasChanged();
+        if (_book?.Format == "EPUB" && _epubSubPage > 1)
+        {
+            var res = await JS.InvokeAsync<RenderPageResult?>("ebookRenderer.setEpubSubPage", _epubSubPage - 1);
+            if (res is not null)
+            {
+                _epubSubPage = res.SubPage;
+                _epubSubPageCount = res.SubPageCount;
+                _requestedSubPage = _epubSubPage;
+            }
+            StateHasChanged();
+            return;
+        }
+
+        if (_currentPage > 1)
+        {
+            _requestedSubPage = -1;
+            await NavigateToPageAsync(_currentPage - 1);
+        }
     }
 
-    private void ExpandToc()
+    private async Task NextPageAsync()
     {
-        _showToc = true;
+        if (_book?.Format == "EPUB" && _epubSubPage < _epubSubPageCount)
+        {
+            var res = await JS.InvokeAsync<RenderPageResult?>("ebookRenderer.setEpubSubPage", _epubSubPage + 1);
+            if (res is not null)
+            {
+                _epubSubPage = res.SubPage;
+                _epubSubPageCount = res.SubPageCount;
+                _requestedSubPage = _epubSubPage;
+            }
+            StateHasChanged();
+            return;
+        }
+
+        if (_currentPage < _totalPages)
+        {
+            _requestedSubPage = 1;
+            await NavigateToPageAsync(_currentPage + 1);
+        }
+    }
+
+    private Task JumpToBackendPageAsync(int targetPage)
+    {
+        _requestedSubPage = 1;
+        return NavigateToPageAsync(targetPage);
+    }
+
+    private void ToggleToc()
+    {
+        _showToc = !_showToc;
         _needsJsRender = true;
         StateHasChanged();
     }
@@ -278,6 +231,7 @@ else
         if (newZoom != _zoomLevel)
         {
             _zoomLevel = newZoom;
+            _requestedSubPage = _epubSubPage;
             _needsJsRender = true;
             await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
         }
@@ -288,6 +242,7 @@ else
         if (_zoomLevel != 100)
         {
             _zoomLevel = 100;
+            _requestedSubPage = _epubSubPage;
             _needsJsRender = true;
             await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
         }
@@ -307,7 +262,6 @@ else
 
         _currentPage = pageResult.Data.PageNumber;
         _totalPages = pageResult.Data.TotalPages;
-        _jumpPageInput = _currentPage;
         _currentPageContent = pageResult.Data.Content;
 
         await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
@@ -316,21 +270,20 @@ else
         StateHasChanged();
     }
 
-    private async Task HandleCreateBookmarkAsync()
+    private async Task HandleCreateBookmarkAsync(string bookmarkName)
     {
         _errorMessage = null;
         _statusMessage = null;
 
-        var nameToSave = string.IsNullOrWhiteSpace(_newBookmarkName)
+        var nameToSave = string.IsNullOrWhiteSpace(bookmarkName)
             ? $"Bookmark (Page {_currentPage})"
-            : _newBookmarkName.Trim();
+            : bookmarkName.Trim();
 
         var result = await ApiClient.AddBookmarkAsync(BookId, nameToSave, _currentPage);
         if (result.IsSuccess && result.Data is not null)
         {
             _bookmarks.Add(result.Data);
             _bookmarks = _bookmarks.OrderBy(b => b.PageNumber).ToList();
-            _newBookmarkName = string.Empty;
             _statusMessage = $"Bookmark saved: '{result.Data.Name}' (Page {result.Data.PageNumber}).";
         }
         else

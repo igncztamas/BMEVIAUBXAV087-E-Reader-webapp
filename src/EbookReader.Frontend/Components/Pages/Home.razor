@@ -9,8 +9,14 @@
 
 @if (Session.IsAuthenticated)
 {
-    <div class="workspace-split" style="display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden;">
-        <div class="workspace-main" style="flex: 1; height: 100%; overflow-y: auto;">
+    var filtered = FilteredBooks;
+    <div class="workspace-split">
+        <SearchSidebar @bind-SearchQuery="_searchQuery"
+                       @bind-FormatFilter="_formatFilter"
+                       FilteredCount="filtered.Count"
+                       TotalCount="_books.Count" />
+
+        <div class="workspace-main">
             @if (!string.IsNullOrWhiteSpace(_errorMessage))
             {
                 <div class="alert alert-danger" role="alert">@_errorMessage</div>
@@ -27,68 +33,58 @@
                     You have no uploaded books yet. Upload a PDF or EPUB file on the right!
                 </div>
             }
+            else if (filtered.Count == 0)
+            {
+                <div class="card" style="text-align: center; color: var(--muted); padding: 2.5rem;">
+                    No books match your search criteria.
+                </div>
+            }
             else
             {
                 <div class="book-grid">
-                    @foreach (var book in _books)
+                    @foreach (var book in filtered)
                     {
-                        <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
-                            <div>
-                                <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
-                                    <h3 style="margin: 0 0 0.35rem 0; font-size: 1.15rem;">@book.Title</h3>
-                                    <span class="badge">@book.Format</span>
-                                </div>
-                                <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
-                                    @(string.IsNullOrWhiteSpace(book.Author) ? book.FileName : book.Author) (@FormatSize(book.FileSizeBytes))
-                                </p>
-                                <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
-                                    Reading position: <strong>Page @book.CurrentPage / @book.TotalPages</strong>
-                                </p>
-                                <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--muted);">
-                                    Bookmarks: @book.BookmarkCount
-                                </p>
-                            </div>
-
-                            <div style="display: flex; gap: 0.5rem;">
-                                <a class="btn btn-primary btn-sm" style="flex: 1;" href="/reader/@book.Id">
-                                    📖 Open (Page @book.CurrentPage)
-                                </a>
-                                <button class="btn btn-danger btn-sm" @onclick="() => HandleDeleteBookAsync(book.Id)">
-                                    Delete
-                                </button>
-                            </div>
-                        </div>
+                        <BookCard Book="book" OnDelete="HandleDeleteBookAsync" />
                     }
                 </div>
             }
         </div>
 
-        <aside class="right-sidebar" style="width: 320px; flex-shrink: 0; height: 100%; overflow-y: auto; margin-left: auto;">
-            <div class="card" style="margin-bottom: 0;">
-                <h2 style="margin-top: 0; font-size: 1.15rem;">Upload New E-book (PDF / EPUB)</h2>
-                <div class="form-group">
-                    <label for="book-title">Book Title (optional)</label>
-                    <input id="book-title" class="form-control" @bind="_customTitle" />
-                </div>
-                <div class="form-group">
-                    <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
-                    <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" multiple />
-                </div>
-                <button class="btn btn-primary" style="width: 100%;" @onclick="HandleUploadSelectedFilesAsync" disabled="@(_selectedFiles.Count == 0 || _isBusy)">
-                    Upload
-                </button>
-            </div>
-        </aside>
+        <UploadSidebar OnBooksChanged="LoadBooksAsync"
+                       OnErrorMessage="msg => _errorMessage = msg"
+                       OnSuccessMessage="msg => _successMessage = msg" />
     </div>
 }
 
 @code {
     private List<BookSummaryItemDto> _books = new();
-    private string? _customTitle;
-    private List<(string Name, byte[] Bytes)> _selectedFiles = new();
     private string? _errorMessage;
     private string? _successMessage;
-    private bool _isBusy;
+    private string _searchQuery = string.Empty;
+    private string _formatFilter = "ALL";
+
+    private List<BookSummaryItemDto> FilteredBooks
+    {
+        get
+        {
+            var query = _books.AsEnumerable();
+            if (!string.Equals(_formatFilter, "ALL", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(b => string.Equals(b.Format, _formatFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var term = _searchQuery.Trim();
+                query = query.Where(b =>
+                    b.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(b.Author) && b.Author.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    b.FileName.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query.ToList();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -132,110 +128,6 @@
         }
     }
 
-    private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
-    {
-        _selectedFiles.Clear();
-        _errorMessage = null;
-        _successMessage = null;
-
-        var errors = new List<string>();
-        IReadOnlyList<IBrowserFile> files;
-        try
-        {
-            files = e.GetMultipleFiles(maximumFileCount: 50);
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error selecting files: {ex.Message}";
-            return;
-        }
-
-        foreach (var file in files)
-        {
-            try
-            {
-                using var stream = file.OpenReadStream(maxAllowedSize: 12 * 1024 * 1024);
-                using var ms = new MemoryStream();
-                await stream.CopyToAsync(ms);
-                _selectedFiles.Add((file.Name, ms.ToArray()));
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{file.Name}: {ex.Message}");
-            }
-        }
-
-        if (errors.Count > 0)
-        {
-            _errorMessage = string.Join(" | ", errors);
-        }
-    }
-
-    private async Task HandleUploadSelectedFilesAsync()
-    {
-        if (_selectedFiles.Count == 0)
-        {
-            _errorMessage = "Please select a file first!";
-            return;
-        }
-
-        _errorMessage = null;
-        _successMessage = null;
-        _isBusy = true;
-
-        var uploadedTitles = new List<string>();
-        var errors = new List<string>();
-        BookDetailItemDto? lastUploadedBook = null;
-
-        try
-        {
-            var singleCustomTitle = _selectedFiles.Count == 1 ? _customTitle : null;
-
-            foreach (var item in _selectedFiles)
-            {
-                try
-                {
-                    var result = await ApiClient.UploadBookAsync(item.Name, item.Bytes, singleCustomTitle);
-                    if (result.IsSuccess && result.Data is not null)
-                    {
-                        lastUploadedBook = result.Data;
-                        uploadedTitles.Add(result.Data.Title);
-                    }
-                    else
-                    {
-                        errors.Add($"{item.Name}: {result.ErrorMessage ?? "Failed to upload file."}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"{item.Name}: {ex.Message}");
-                }
-            }
-
-            if (uploadedTitles.Count == 1 && lastUploadedBook is not null)
-            {
-                _successMessage = $"Successfully uploaded: '{lastUploadedBook.Title}' ({lastUploadedBook.Format}, {lastUploadedBook.TotalPages} pages).";
-            }
-            else if (uploadedTitles.Count > 1)
-            {
-                _successMessage = $"Successfully uploaded {uploadedTitles.Count} books: {string.Join(", ", uploadedTitles)}.";
-            }
-
-            if (errors.Count > 0)
-            {
-                _errorMessage = string.Join(" | ", errors);
-            }
-
-            _selectedFiles.Clear();
-            _customTitle = null;
-            await LoadBooksAsync();
-        }
-        finally
-        {
-            _isBusy = false;
-        }
-    }
-
     private async Task HandleDeleteBookAsync(Guid bookId)
     {
         _errorMessage = null;
@@ -252,9 +144,6 @@
             _errorMessage = result.ErrorMessage ?? "Failed to delete book.";
         }
     }
-
-    private static string FormatSize(long bytes) =>
-        bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024.0:F1} KB";
 
     public void Dispose()
     {

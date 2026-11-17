@@ -1,34 +1,6 @@
-using EbookReader.Backend.Models;
-
 namespace EbookReader.Backend.Services;
 
-public record ParsedEbook(
-    string Format,
-    string ContentHash,
-    List<string> Pages,
-    string? MetadataTitle = null,
-    string? MetadataAuthor = null,
-    List<TocItem>? TableOfContents = null);
-
-public interface IDataStore
-{
-    Task<TResult> ReadAsync<TResult>(Func<DatabaseSnapshot, TResult> query);
-    Task<TResult> WriteAsync<TResult>(Func<DatabaseSnapshot, TResult> mutator);
-}
-
-public interface IEbookValidatorAndParser
-{
-    long MaxFileSizeBytes { get; set; }
-    ServiceResult<ParsedEbook> ValidateAndParse(string fileName, byte[]? fileBytes);
-}
-
-public interface IAuthService
-{
-    Task<ServiceResult<AuthResponse>> RegisterAsync(string? username, string? password);
-    Task<ServiceResult<AuthResponse>> LoginAsync(string? username, string? password);
-    Task<UserDto?> ValidateTokenAsync(string? token);
-    Task LogoutAsync(string? token);
-}
+using EbookReader.Backend.Models;
 
 public interface IBookService
 {
