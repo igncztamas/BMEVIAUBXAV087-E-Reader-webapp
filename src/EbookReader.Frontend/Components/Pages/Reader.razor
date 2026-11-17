@@ -8,68 +8,124 @@
 
 @if (!Session.IsAuthenticated)
 {
-    <div class="alert alert-danger" role="alert">
-        You must be logged in to use the reader. <a href="/login">Login here!</a>
+    <div style="padding: 2rem; width: 100%;">
+        <div class="alert alert-danger" role="alert">
+            You must be logged in to use the reader. <a href="/login">Login here!</a>
+        </div>
     </div>
 }
 else if (_isLoading)
 {
-    <div class="card">Loading book...</div>
+    <div style="padding: 2rem; width: 100%;">
+        <div class="card">Loading book...</div>
+    </div>
 }
 else if (_book is null)
 {
-    <div class="alert alert-danger" role="alert">
-        @(_errorMessage ?? "The book could not be loaded.")
+    <div style="padding: 2rem; width: 100%;">
+        <div class="alert alert-danger" role="alert">
+            @(_errorMessage ?? "The book could not be loaded.")
+        </div>
+        <a class="btn btn-outline" href="/">← Back to Library</a>
     </div>
-    <a class="btn btn-outline" href="/">← Back to Library</a>
 }
 else
 {
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <div>
-            <a class="btn btn-outline btn-sm" href="/">← Back to Library</a>
-            <h1 style="display: inline-block; margin: 0 0 0 0.75rem; font-size: 1.45rem;">@_book.Title</h1>
-            <span class="badge" style="margin-left: 0.5rem;">@_book.Format</span>
-        </div>
-        <div style="font-weight: 600;">
-            Page: @_currentPage / @_totalPages
-        </div>
-    </div>
+    <div class="workspace-split" style="display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden;">
+        @if (_showToc)
+        {
+            <aside class="left-sidebar" style="width: 270px; flex-shrink: 0; height: 100%; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; font-size: 0.95rem;">📑 Table of Contents</span>
+                    <button class="btn btn-outline btn-sm" title="Collapse Table of Contents" @onclick="CollapseToc">◀</button>
+                </div>
 
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
-    {
-        <div class="alert alert-danger" role="alert">@_errorMessage</div>
-    }
+                @if (_book.TableOfContents is null || _book.TableOfContents.Count == 0)
+                {
+                    <p style="font-size: 0.88rem; color: var(--muted); margin: 0;">No table of contents available for this document.</p>
+                }
+                else
+                {
+                    var activeItem = _book.TableOfContents.Where(t => t.PageNumber <= _currentPage).LastOrDefault();
+                    <ul class="toc-list">
+                        @foreach (var item in _book.TableOfContents)
+                        {
+                            var isActive = activeItem == item;
+                            <li class="toc-item @(isActive ? "active" : "")">
+                                <button class="toc-btn @(isActive ? "active" : "")"
+                                        style="padding-left: @(0.6 + item.Level * 0.85)rem;"
+                                        @onclick="() => NavigateToPageAsync(item.PageNumber)">
+                                    <span>@item.Title</span>
+                                    <span class="toc-page-num">@item.PageNumber</span>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </aside>
+        }
 
-    @if (!string.IsNullOrWhiteSpace(_statusMessage))
-    {
-        <div class="alert alert-success" role="status">@_statusMessage</div>
-    }
-
-    <div class="reader-layout">
-        <div>
+        <div class="reader-main-stage" style="flex: 1; height: 100%; overflow: auto; position: relative;">
+            @if (!_showToc)
+            {
+                <button class="btn btn-outline btn-sm"
+                        style="position: absolute; top: 0.75rem; left: 0.75rem; z-index: 20; background: var(--surface, #ffffff); box-shadow: 0 2px 6px rgba(0,0,0,0.1);"
+                        @onclick="ExpandToc">
+                    📑 Contents
+                </button>
+            }
             <div id="ebook-render-target" class="reader-page-box"></div>
+        </div>
 
-            <div class="card" style="margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn btn-outline" @onclick="PreviousPageAsync" disabled="@(_currentPage <= 1)">
-                        ◀ Previous Page
+        <aside class="right-sidebar" style="width: 320px; flex-shrink: 0; height: 100%; overflow-y: auto; margin-left: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <a class="btn btn-outline btn-sm" href="/">← Back to Library</a>
+                <span class="badge">@_book.Format</span>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <div class="alert alert-danger" role="alert" style="margin-bottom: 0;">@_errorMessage</div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_statusMessage))
+            {
+                <div class="alert alert-success" role="status" style="margin-bottom: 0;">@_statusMessage</div>
+            }
+
+            <div class="card" style="margin-bottom: 0;">
+                <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
+                    Page @_currentPage / @_totalPages
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="PreviousPageAsync" disabled="@(_currentPage <= 1)">
+                        ◀ Prev
                     </button>
-                    <button class="btn btn-primary" @onclick="NextPageAsync" disabled="@(_currentPage >= _totalPages)">
-                        Next Page ▶
+                    <button class="btn btn-primary btn-sm" style="flex: 1;" @onclick="NextPageAsync" disabled="@(_currentPage >= _totalPages)">
+                        Next ▶
                     </button>
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <label for="jump-page-input" style="font-size: 0.9rem; font-weight: 600;">Jump to page:</label>
-                    <input id="jump-page-input" type="number" class="form-control" style="width: 90px;" @bind="_jumpPageInput" />
+                    <label for="jump-page-input" style="font-size: 0.85rem; font-weight: 600;">Jump:</label>
+                    <input id="jump-page-input" type="number" class="form-control" style="width: 80px; padding: 0.35rem 0.5rem;" @bind="_jumpPageInput" />
                     <button class="btn btn-outline btn-sm" @onclick="HandleJumpToPageAsync">Go</button>
                 </div>
             </div>
-        </div>
 
-        <aside>
-            <div class="card">
+            <div class="card" style="margin-bottom: 0;">
+                <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
+                    @(_book.Format == "EPUB" ? $"Font Size: {_zoomLevel}%" : $"Zoom: {_zoomLevel}%")
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="() => ChangeZoomAsync(-15)">−</button>
+                    <button class="btn btn-outline btn-sm" style="flex: 1.2;" @onclick="ResetZoomAsync">100%</button>
+                    <button class="btn btn-outline btn-sm" style="flex: 1;" @onclick="() => ChangeZoomAsync(15)">+</button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom: 0;">
                 <h2 style="margin-top: 0; font-size: 1.15rem;">🔖 Bookmarks (@_bookmarks.Count)</h2>
                 <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0;">
                     Save current page (@_currentPage) with a custom name:
@@ -128,6 +184,8 @@ else
     private string? _statusMessage;
     private bool _isLoading = true;
     private bool _needsJsRender;
+    private int _zoomLevel = 100;
+    private bool _showToc = true;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -156,7 +214,8 @@ else
                     format = _book.Format,
                     fileUrl,
                     pageNumber = _currentPage,
-                    fallbackHtml = _currentPageContent
+                    fallbackHtml = _currentPageContent,
+                    zoomLevel = _zoomLevel
                 });
             }
             catch
@@ -180,6 +239,8 @@ else
             _jumpPageInput = _currentPage;
             _currentPageContent = _book.CurrentPageContent;
             _bookmarks = _book.Bookmarks.OrderBy(b => b.PageNumber).ToList();
+            _zoomLevel = _book.ZoomLevel > 0 ? _book.ZoomLevel : 100;
+            Session.SetHeaderTitle(_book.Title);
             _needsJsRender = true;
         }
         else
@@ -196,6 +257,41 @@ else
     private Task NextPageAsync() => NavigateToPageAsync(_currentPage + 1);
 
     private Task HandleJumpToPageAsync() => NavigateToPageAsync(_jumpPageInput);
+
+    private void CollapseToc()
+    {
+        _showToc = false;
+        _needsJsRender = true;
+        StateHasChanged();
+    }
+
+    private void ExpandToc()
+    {
+        _showToc = true;
+        _needsJsRender = true;
+        StateHasChanged();
+    }
+
+    private async Task ChangeZoomAsync(int delta)
+    {
+        var newZoom = Math.Clamp(_zoomLevel + delta, 50, 250);
+        if (newZoom != _zoomLevel)
+        {
+            _zoomLevel = newZoom;
+            _needsJsRender = true;
+            await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
+        }
+    }
+
+    private async Task ResetZoomAsync()
+    {
+        if (_zoomLevel != 100)
+        {
+            _zoomLevel = 100;
+            _needsJsRender = true;
+            await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
+        }
+    }
 
     private async Task NavigateToPageAsync(int targetPage)
     {
@@ -214,7 +310,7 @@ else
         _jumpPageInput = _currentPage;
         _currentPageContent = pageResult.Data.Content;
 
-        await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow);
+        await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
 
         _needsJsRender = true;
         StateHasChanged();

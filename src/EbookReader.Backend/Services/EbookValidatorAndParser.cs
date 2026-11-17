@@ -124,7 +124,15 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
 
         var rawBtBlocks = ExtractRawBtEtBlocks(rawText);
         var pages = new List<string>();
+        var pdfToc = new List<TocItem>();
         bool anyContentExtracted = false;
+
+        string? metadataTitle = !string.IsNullOrWhiteSpace(document.Information?.Title)
+            ? document.Information.Title.Trim()
+            : null;
+        string? metadataAuthor = !string.IsNullOrWhiteSpace(document.Information?.Author)
+            ? document.Information.Author.Trim()
+            : null;
 
         using (document)
         {
@@ -263,24 +271,62 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
                 }
                 pages.Add(pageContent);
             }
+
+            try
+            {
+                if (document.TryGetBookmarks(out var pdfBookmarks) && pdfBookmarks != null && pdfBookmarks.Roots != null)
+                {
+                    TraversePdfBookmarks(pdfBookmarks.Roots, 0, document.NumberOfPages, pdfToc);
+                }
+            }
+            catch
+            {
+                // Ignore outline extraction error
+            }
         }
 
         bool hasStream = rawText.Contains("stream", StringComparison.OrdinalIgnoreCase);
         if (anyContentExtracted || hasStream)
         {
-            return ServiceResult<ParsedEbook>.Success(new ParsedEbook("PDF", contentHash, pages));
+            return ServiceResult<ParsedEbook>.Success(new ParsedEbook("PDF", contentHash, pages, metadataTitle, metadataAuthor, pdfToc));
         }
 
         var fallbackPages = ExtractLegacyBtEtPages(utf8Text);
         if (fallbackPages.Count > 0)
         {
-            return ServiceResult<ParsedEbook>.Success(new ParsedEbook("PDF", contentHash, fallbackPages));
+            return ServiceResult<ParsedEbook>.Success(new ParsedEbook("PDF", contentHash, fallbackPages, metadataTitle, metadataAuthor, pdfToc));
         }
 
         return ServiceResult<ParsedEbook>.Failure(
             400,
             EbookErrorCodes.EmptyPdfContent,
             "The PDF file does not contain readable pages or images.");
+    }
+
+    private static void TraversePdfBookmarks(IEnumerable<UglyToad.PdfPig.Outline.BookmarkNode> nodes, int level, int maxPages, List<TocItem> toc)
+    {
+        foreach (var node in nodes)
+        {
+            if (node == null) continue;
+            int pageNum = 1;
+            if (node is UglyToad.PdfPig.Outline.DocumentBookmarkNode docNode)
+            {
+                pageNum = docNode.PageNumber;
+            }
+            if (!string.IsNullOrWhiteSpace(node.Title))
+            {
+                toc.Add(new TocItem
+                {
+                    Title = node.Title.Trim(),
+                    PageNumber = Math.Clamp(pageNum, 1, Math.Max(1, maxPages)),
+                    Level = level
+                });
+            }
+            if (node.Children != null && node.Children.Count > 0)
+            {
+                TraversePdfBookmarks(node.Children, level + 1, maxPages, toc);
+            }
+        }
     }
 
     private static List<string> ExtractLegacyBtEtPages(string pdfText)
@@ -378,6 +424,13 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
 
             if (epubBook != null && epubBook.ReadingOrder != null && epubBook.ReadingOrder.Count > 0)
             {
+                string? metadataTitle = !string.IsNullOrWhiteSpace(epubBook.Title) ? epubBook.Title.Trim() : null;
+                string? metadataAuthor = !string.IsNullOrWhiteSpace(epubBook.Author)
+                    ? epubBook.Author.Trim()
+                    : (epubBook.AuthorList != null && epubBook.AuthorList.Count > 0
+                        ? string.Join(", ", epubBook.AuthorList.Where(a => !string.IsNullOrWhiteSpace(a)))
+                        : null);
+
                 var cssSb = new StringBuilder();
                 if (epubBook.Content?.Css?.Local != null)
                 {
@@ -417,22 +470,150 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
                     }
                 }
 
+                var chapterPageMap = new Dictionary<string, (int StartPage, int EndPage)>(StringComparer.OrdinalIgnoreCase);
                 var pages = new List<string>();
                 foreach (var chapter in epubBook.ReadingOrder)
                 {
                     if (chapter != null && !string.IsNullOrWhiteSpace(chapter.Content))
                     {
-                        var chapterHtml = FormatChapterHtml(chapter.Content, imageMap, combinedCss);
-                        if (!string.IsNullOrWhiteSpace(chapterHtml))
+                        int startPage = pages.Count + 1;
+                        var chapterPages = FormatChapterHtml(chapter.Content, imageMap, combinedCss);
+                        foreach (var cp in chapterPages)
                         {
-                            pages.Add(chapterHtml);
+                            if (!string.IsNullOrWhiteSpace(cp))
+                            {
+                                pages.Add(cp);
+                            }
+                        }
+                        int endPage = Math.Max(startPage, pages.Count);
+
+                        if (!string.IsNullOrWhiteSpace(chapter.FilePath))
+                        {
+                            var rawPath = chapter.FilePath;
+                            var cleanPath = rawPath.Replace('\\', '/').TrimStart('/');
+                            var fileName = Path.GetFileName(cleanPath);
+
+                            chapterPageMap[rawPath] = (startPage, endPage);
+                            chapterPageMap[cleanPath] = (startPage, endPage);
+                            chapterPageMap[fileName] = (startPage, endPage);
+                        }
+                    }
+                }
+
+                var toc = new List<TocItem>();
+
+                void TraverseNavigation(IEnumerable<EpubNavigationItem> navItems, int level)
+                {
+                    foreach (var item in navItems)
+                    {
+                        if (item == null) continue;
+
+                        string? filePath = item.Link?.ContentFilePath
+                            ?? item.HtmlContentFile?.FilePath;
+
+                        string? anchor = item.Link?.Anchor;
+
+                        if (!string.IsNullOrWhiteSpace(filePath) && filePath.Contains('#') && string.IsNullOrWhiteSpace(anchor))
+                        {
+                            var parts = filePath.Split('#', 2);
+                            filePath = parts[0];
+                            anchor = parts[1];
+                        }
+
+                        int resolvedPage = 1;
+                        (int StartPage, int EndPage) range = (1, 1);
+                        bool foundRange = false;
+
+                        if (!string.IsNullOrWhiteSpace(filePath))
+                        {
+                            var clean = filePath.Replace('\\', '/').TrimStart('/');
+                            var fileName = Path.GetFileName(clean);
+
+                            if (chapterPageMap.TryGetValue(filePath, out range) ||
+                                chapterPageMap.TryGetValue(clean, out range) ||
+                                chapterPageMap.TryGetValue(fileName, out range))
+                            {
+                                foundRange = true;
+                                resolvedPage = range.StartPage;
+                            }
+                        }
+
+                        if (foundRange && !string.IsNullOrWhiteSpace(anchor))
+                        {
+                            var idPattern = $"id=\"{Regex.Escape(anchor)}\"";
+                            var namePattern = $"name=\"{Regex.Escape(anchor)}\"";
+                            var idPatternSingle = $"id='{Regex.Escape(anchor)}'";
+                            var namePatternSingle = $"name='{Regex.Escape(anchor)}'";
+
+                            for (int p = range.StartPage; p <= range.EndPage && p <= pages.Count; p++)
+                            {
+                                var pageContent = pages[p - 1];
+                                if (pageContent.Contains(idPattern, StringComparison.OrdinalIgnoreCase) ||
+                                    pageContent.Contains(namePattern, StringComparison.OrdinalIgnoreCase) ||
+                                    pageContent.Contains(idPatternSingle, StringComparison.OrdinalIgnoreCase) ||
+                                    pageContent.Contains(namePatternSingle, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    resolvedPage = p;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(item.Title))
+                        {
+                            toc.Add(new TocItem
+                            {
+                                Title = item.Title.Trim(),
+                                PageNumber = Math.Clamp(resolvedPage, 1, Math.Max(1, pages.Count)),
+                                Level = level
+                            });
+                        }
+
+                        if (item.NestedItems != null && item.NestedItems.Count > 0)
+                        {
+                            TraverseNavigation(item.NestedItems, level + 1);
+                        }
+                    }
+                }
+
+                if (epubBook.Navigation != null && epubBook.Navigation.Count > 0)
+                {
+                    TraverseNavigation(epubBook.Navigation, 0);
+                }
+
+                if (toc.Count == 0)
+                {
+                    foreach (var chapter in epubBook.ReadingOrder)
+                    {
+                        if (chapter != null && !string.IsNullOrWhiteSpace(chapter.FilePath) && chapterPageMap.TryGetValue(Path.GetFileName(chapter.FilePath), out var range))
+                        {
+                            for (int p = range.StartPage; p <= range.EndPage && p <= pages.Count; p++)
+                            {
+                                var pageContent = pages[p - 1];
+                                var hMatch = Regex.Match(pageContent, @"<h([1-3])[^>]*>(.*?)</h\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                                if (hMatch.Success)
+                                {
+                                    var headingText = System.Net.WebUtility.HtmlDecode(Regex.Replace(hMatch.Groups[2].Value, @"<[^>]+>", string.Empty)).Trim();
+                                    if (!string.IsNullOrWhiteSpace(headingText))
+                                    {
+                                        int level = int.Parse(hMatch.Groups[1].Value) - 1;
+                                        toc.Add(new TocItem
+                                        {
+                                            Title = headingText,
+                                            PageNumber = p,
+                                            Level = Math.Max(0, level)
+                                        });
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
                 if (pages.Count > 0)
                 {
-                    return ServiceResult<ParsedEbook>.Success(new ParsedEbook("EPUB", contentHash, pages));
+                    return ServiceResult<ParsedEbook>.Success(new ParsedEbook("EPUB", contentHash, pages, metadataTitle, metadataAuthor, toc));
                 }
             }
 
@@ -537,16 +718,41 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
             }
             var zipCombinedCss = zipCssSb.ToString().Trim();
 
+            string? fallbackTitle = null;
+            string? fallbackAuthor = null;
+            var opfEntry = archive.Entries.FirstOrDefault(e => e.FullName.EndsWith(".opf", StringComparison.OrdinalIgnoreCase));
+            if (opfEntry != null)
+            {
+                using var opfStream = opfEntry.Open();
+                using var opfReader = new StreamReader(opfStream, Encoding.UTF8);
+                var opfText = opfReader.ReadToEnd();
+
+                var titleMatch = Regex.Match(opfText, @"<dc:title[^>]*>(.*?)</dc:title>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                if (titleMatch.Success && !string.IsNullOrWhiteSpace(titleMatch.Groups[1].Value))
+                {
+                    fallbackTitle = System.Net.WebUtility.HtmlDecode(titleMatch.Groups[1].Value).Trim();
+                }
+
+                var creatorMatch = Regex.Match(opfText, @"<dc:creator[^>]*>(.*?)</dc:creator>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                if (creatorMatch.Success && !string.IsNullOrWhiteSpace(creatorMatch.Groups[1].Value))
+                {
+                    fallbackAuthor = System.Net.WebUtility.HtmlDecode(creatorMatch.Groups[1].Value).Trim();
+                }
+            }
+
             var pages = new List<string>();
             foreach (var entry in contentEntries)
             {
                 using var stream = entry.Open();
                 using var reader = new StreamReader(stream, Encoding.UTF8);
                 var html = reader.ReadToEnd();
-                var chapterHtml = FormatChapterHtml(html, zipImageMap, zipCombinedCss);
-                if (!string.IsNullOrWhiteSpace(chapterHtml))
+                var chapterPages = FormatChapterHtml(html, zipImageMap, zipCombinedCss);
+                foreach (var cp in chapterPages)
                 {
-                    pages.Add(chapterHtml);
+                    if (!string.IsNullOrWhiteSpace(cp))
+                    {
+                        pages.Add(cp);
+                    }
                 }
             }
 
@@ -558,7 +764,28 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
                     "The EPUB file does not contain readable text chapters.");
             }
 
-            return ServiceResult<ParsedEbook>.Success(new ParsedEbook("EPUB", contentHash, pages));
+            var fallbackToc = new List<TocItem>();
+            for (int i = 0; i < pages.Count; i++)
+            {
+                var pageContent = pages[i];
+                var hMatch = Regex.Match(pageContent, @"<h([1-3])[^>]*>(.*?)</h\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                if (hMatch.Success)
+                {
+                    var headingText = System.Net.WebUtility.HtmlDecode(Regex.Replace(hMatch.Groups[2].Value, @"<[^>]+>", string.Empty)).Trim();
+                    if (!string.IsNullOrWhiteSpace(headingText))
+                    {
+                        int level = int.Parse(hMatch.Groups[1].Value) - 1;
+                        fallbackToc.Add(new TocItem
+                        {
+                            Title = headingText,
+                            PageNumber = i + 1,
+                            Level = Math.Max(0, level)
+                        });
+                    }
+                }
+            }
+
+            return ServiceResult<ParsedEbook>.Success(new ParsedEbook("EPUB", contentHash, pages, fallbackTitle, fallbackAuthor, fallbackToc));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException)
         {
@@ -569,11 +796,11 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
         }
     }
 
-    private static string FormatChapterHtml(string rawHtml, Dictionary<string, string> imageMap, string combinedCss = "")
+    private static List<string> FormatChapterHtml(string rawHtml, Dictionary<string, string> imageMap, string combinedCss = "")
     {
         if (string.IsNullOrWhiteSpace(rawHtml))
         {
-            return string.Empty;
+            return new List<string>();
         }
 
         var cleaned = Regex.Replace(rawHtml, @"<script[^>]*>.*?</script>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
@@ -590,7 +817,7 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
 
         if (string.IsNullOrWhiteSpace(contentHtml))
         {
-            return string.Empty;
+            return new List<string>();
         }
 
         contentHtml = Regex.Replace(
@@ -604,7 +831,7 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
         bool hasImg = Regex.IsMatch(contentHtml, @"<(img|image)\b", RegexOptions.IgnoreCase);
         if (!hasVisibleText && !hasImg)
         {
-            return string.Empty;
+            return new List<string>();
         }
 
         contentHtml = Regex.Replace(
@@ -627,19 +854,77 @@ public class EbookValidatorAndParser : IEbookValidatorAndParser
             },
             RegexOptions.IgnoreCase);
 
-        const string baseStyle = "<style>body{margin:0;font-family:Georgia,serif;line-height:1.65;color:#0f172a;} p{margin:0.25em 0;} .epub-spacer{height:0.6em;} img,svg{max-width:100%;height:auto;display:block;margin:0.75rem auto;}</style>";
+        return PaginateChapterHtml(contentHtml, string.Empty);
+    }
 
-        var styleHeader = new StringBuilder();
-        styleHeader.AppendLine(baseStyle);
-        if (!string.IsNullOrWhiteSpace(combinedCss))
+    private static List<string> PaginateChapterHtml(string bodyHtml, string styleBlock, int maxTextCharsPerPage = 2600)
+    {
+        if (string.IsNullOrWhiteSpace(bodyHtml))
         {
-            styleHeader.AppendLine($"<style>{combinedCss}</style>");
-        }
-        if (existingStyles.Length > 0 && !contentHtml.Contains("<style", StringComparison.OrdinalIgnoreCase))
-        {
-            styleHeader.Append(existingStyles);
+            return new List<string>();
         }
 
-        return $"{styleHeader.ToString().Trim()}\n{contentHtml}".Trim();
+        var cleanedBody = Regex.Replace(bodyHtml, @"<style[^>]*>.*?</style>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase).Trim();
+
+        var textOnly = Regex.Replace(cleanedBody, @"<[^>]+>", string.Empty);
+        var visibleText = System.Net.WebUtility.HtmlDecode(textOnly).Trim();
+
+        var prefix = string.IsNullOrWhiteSpace(styleBlock) ? string.Empty : styleBlock.Trim() + "\n";
+
+        if (visibleText.Length <= maxTextCharsPerPage)
+        {
+            return new List<string> { $"{prefix}{cleanedBody}".Trim() };
+        }
+
+        var rawChunks = Regex.Split(
+            cleanedBody,
+            @"(?<=(?:</p>|</div>|</h[1-6]>|</blockquote>|</ul>|</ol>|<hr[^>]*>))",
+            RegexOptions.IgnoreCase);
+
+        var pages = new List<string>();
+        var currentChunkSb = new StringBuilder();
+        int currentTextLength = 0;
+        bool currentHasImage = false;
+
+        foreach (var chunk in rawChunks)
+        {
+            if (string.IsNullOrWhiteSpace(chunk))
+            {
+                continue;
+            }
+
+            var chunkText = System.Net.WebUtility.HtmlDecode(Regex.Replace(chunk, @"<[^>]+>", string.Empty)).Trim();
+            bool chunkHasImage = Regex.IsMatch(chunk, @"<(?:img|image|svg)\b", RegexOptions.IgnoreCase);
+            int maxChars = (currentHasImage || chunkHasImage) ? 1200 : maxTextCharsPerPage;
+            int minCharsBeforeBreak = (currentHasImage || chunkHasImage) ? 800 : 1800;
+            int overflowTolerance = (currentHasImage || chunkHasImage) ? 300 : 500;
+
+            if (currentChunkSb.Length > 0 && (currentTextLength + chunkText.Length > maxChars))
+            {
+                if (currentTextLength >= minCharsBeforeBreak || (currentTextLength + chunkText.Length > maxChars + overflowTolerance))
+                {
+                    var pageContent = $"{prefix}{currentChunkSb.ToString().Trim()}".Trim();
+                    pages.Add(pageContent);
+                    currentChunkSb.Clear();
+                    currentTextLength = 0;
+                    currentHasImage = false;
+                }
+            }
+
+            currentChunkSb.Append(chunk);
+            currentTextLength += chunkText.Length;
+            if (chunkHasImage)
+            {
+                currentHasImage = true;
+            }
+        }
+
+        if (currentChunkSb.Length > 0)
+        {
+            var pageContent = $"{prefix}{currentChunkSb.ToString().Trim()}".Trim();
+            pages.Add(pageContent);
+        }
+
+        return pages.Count > 0 ? pages : new List<string> { $"{prefix}{cleanedBody}".Trim() };
     }
 }

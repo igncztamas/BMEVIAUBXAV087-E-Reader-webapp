@@ -104,11 +104,56 @@
         return buffer;
     }
 
+    window.ebookTheme = {
+        apply: function (isDark) {
+            const theme = isDark ? "dark" : "light";
+            document.documentElement.setAttribute("data-theme", theme);
+            try {
+                localStorage.setItem("ebook_theme", theme);
+            } catch (e) { }
+
+            if (activeEpub.rendition && activeEpub.rendition.themes) {
+                try {
+                    activeEpub.rendition.themes.select(theme);
+                } catch (e) { }
+            }
+
+            const iframe = document.querySelector("#ebook-render-target iframe");
+            if (iframe && iframe.contentWindow && iframe.contentWindow.document) {
+                try {
+                    const doc = iframe.contentWindow.document;
+                    let styleEl = doc.getElementById("ebook-dark-mode-override");
+                    if (isDark) {
+                        if (!styleEl) {
+                            styleEl = doc.createElement("style");
+                            styleEl.id = "ebook-dark-mode-override";
+                            doc.head.appendChild(styleEl);
+                        }
+                        styleEl.textContent = ":root{color-scheme:dark;} body{background:#1e293b !important; color:#e2e8f0 !important;} p,div,span,h1,h2,h3,h4,li,a{color:#e2e8f0 !important;}";
+                    } else if (styleEl) {
+                        styleEl.remove();
+                    }
+                } catch (e) { }
+            }
+        }
+    };
+
+    try {
+        const savedTheme = localStorage.getItem("ebook_theme");
+        if (savedTheme === "dark") {
+            document.documentElement.setAttribute("data-theme", "dark");
+        } else if (savedTheme === "light") {
+            document.documentElement.setAttribute("data-theme", "light");
+        }
+    } catch (e) { }
+
     function renderEpubFallback(target, fallbackHtml) {
         target.innerHTML = "";
+        const isDark = document.documentElement.getAttribute("data-theme") === "dark";
         const iframe = document.createElement("iframe");
         iframe.style.cssText = "width:100%; min-height:600px; border:none;";
-        iframe.srcdoc = fallbackHtml || "";
+        const darkStyle = isDark ? `<style id="ebook-dark-mode-override">:root{color-scheme:dark;} body{background:#1e293b !important; color:#e2e8f0 !important;} p,div,span,h1,h2,h3,h4,li,a{color:#e2e8f0 !important;}</style>` : "";
+        iframe.srcdoc = darkStyle + (fallbackHtml || "");
         iframe.onload = () => {
             try {
                 if (iframe.contentWindow && iframe.contentWindow.document && iframe.contentWindow.document.documentElement) {
@@ -139,6 +184,8 @@
 
             if (renderId !== currentRenderId) return;
 
+            const zoomFactor = (options.zoomLevel || 100) / 100.0;
+
             if (format === "PDF") {
                 // Destroy any lingering EPUB rendition when viewing a PDF
                 if (activeEpub.book) {
@@ -163,23 +210,24 @@
                         if (renderId !== currentRenderId) return;
 
                         const page = await pdfDoc.getPage(options.pageNumber);
-                        const style = window.getComputedStyle(target);
-                        const padLeft = parseFloat(style.paddingLeft) || 0;
-                        const padRight = parseFloat(style.paddingRight) || 0;
-                        const availableWidth = Math.max(300, (target.clientWidth || 800) - padLeft - padRight - 16);
                         const unscaledViewport = page.getViewport({ scale: 1.0 });
-                        const cssScale = availableWidth / unscaledViewport.width;
+
+                        const availableWidth = Math.max(300, (target.clientWidth || 900) - 24);
+                        const availableHeight = Math.max(300, (target.clientHeight || window.innerHeight || 800) - 24);
+                        const fitScale = Math.min(availableWidth / unscaledViewport.width, availableHeight / unscaledViewport.height);
+                        const cssScale = fitScale * zoomFactor;
+
                         const pixelRatio = Math.max(window.devicePixelRatio || 1, 2);
                         const cssViewport = page.getViewport({ scale: cssScale });
                         const hiresViewport = page.getViewport({ scale: cssScale * pixelRatio });
 
                         target.innerHTML = "";
                         const wrapper = document.createElement("div");
-                        wrapper.style.cssText = "display:block; text-align:center; background:#f8fafc; padding:0.5rem; border-radius:0.5rem; overflow-x:auto;";
+                        wrapper.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%; height:100%; min-height:100%; overflow:auto; padding:0.5rem;";
 
                         const pdfPageContainer = document.createElement("div");
                         pdfPageContainer.className = "pdf-page-container";
-                        pdfPageContainer.style.cssText = `position:relative; width:${cssViewport.width}px; height:${cssViewport.height}px; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.08); background:#fff; text-align:initial; line-height:1;`;
+                        pdfPageContainer.style.cssText = `position:relative; width:${cssViewport.width}px; height:${cssViewport.height}px; margin:auto; flex-shrink:0; box-shadow:0 2px 10px rgba(0,0,0,0.12); background:#fff; text-align:initial; line-height:1;`;
                         pdfPageContainer.style.setProperty("--scale-factor", String(cssViewport.scale));
 
                         const canvas = document.createElement("canvas");
@@ -226,74 +274,19 @@
                 if (!renderedWithPdfJs) {
                     if (renderId !== currentRenderId) return;
                     if (arrayBuffer && arrayBuffer.byteLength > 800) {
-                        target.innerHTML = `<iframe src="${options.fileUrl}#page=${options.pageNumber}&view=FitH" style="width:100%; height:78vh; border:none; border-radius:0.5rem;"></iframe>`;
+                        target.innerHTML = `<iframe src="${options.fileUrl}#page=${options.pageNumber}&view=Fit" style="width:100%; height:100%; border:none;"></iframe>`;
                     } else {
                         target.innerHTML = options.fallbackHtml || "";
                     }
                 }
             } else if (format === "EPUB") {
-                let renderedWithEpubJs = false;
-                try {
-                    const epubjs = await ensureEpubJs();
-                    if (epubjs && arrayBuffer) {
-                        const spineIndex = Math.max(0, options.pageNumber - 1);
-                        const existingFrame = document.getElementById("epubjs-frame");
-
-                        if (activeEpub.bookId === options.bookId &&
-                            activeEpub.targetEl === target &&
-                            activeEpub.rendition &&
-                            activeEpub.book &&
-                            existingFrame) {
-                            const spineItem = activeEpub.book.spine.get(spineIndex);
-                            await activeEpub.rendition.display(spineItem ? spineItem.href : spineIndex);
-                            renderedWithEpubJs = true;
-                        } else {
-                            if (activeEpub.book) {
-                                try {
-                                    activeEpub.book.destroy();
-                                } catch (e) { }
-                                activeEpub.book = null;
-                                activeEpub.rendition = null;
-                            }
-
-                            target.innerHTML = "";
-                            const frameDiv = document.createElement("div");
-                            frameDiv.id = "epubjs-frame";
-                            frameDiv.style.cssText = "width:100%; min-height:600px;";
-                            target.appendChild(frameDiv);
-
-                            const book = window.ePub(arrayBuffer.slice(0));
-                            const rendition = book.renderTo("epubjs-frame", { width: "100%", flow: "scrolled-doc" });
-
-                            rendition.hooks.content.register(contents => {
-                                contents.addStylesheetRules({
-                                    "body": { "font-family": "Georgia, serif", "line-height": "1.65", "padding": "0.5rem 1rem" },
-                                    "p": { "margin-top": "0.25em", "margin-bottom": "0.25em" },
-                                    "img": { "max-width": "100%", "height": "auto" }
-                                });
-                            });
-
-                            await book.ready;
-                            if (renderId !== currentRenderId) return;
-
-                            activeEpub.bookId = options.bookId;
-                            activeEpub.targetEl = target;
-                            activeEpub.book = book;
-                            activeEpub.rendition = rendition;
-
-                            const spineItem = book.spine.get(spineIndex);
-                            await rendition.display(spineItem ? spineItem.href : spineIndex);
-                            renderedWithEpubJs = true;
-                        }
-                    }
-                } catch (epubErr) {
-                    console.warn("epub.js render failed, falling back:", epubErr);
-                }
-
-                if (!renderedWithEpubJs) {
-                    if (renderId !== currentRenderId) return;
-                    renderEpubFallback(target, options.fallbackHtml);
-                }
+                target.innerHTML = "";
+                const sheet = document.createElement("div");
+                sheet.className = "epub-page-sheet";
+                sheet.style.cssText = `width: min(1080px, 98%); height: calc(100vh - 1.5rem); background: var(--reader-paper, #fffef9); color: var(--reader-text, #0f172a); border-radius: 0.5rem; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 1.5rem 2.25rem; overflow-y: auto; font-family: Georgia, 'Times New Roman', serif; font-size: ${(1.06 * zoomFactor).toFixed(2)}rem; line-height: 1.55; margin: auto; box-sizing: border-box;`;
+                const cleanHtml = (options.fallbackHtml || "").replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
+                sheet.innerHTML = cleanHtml;
+                target.appendChild(sheet);
             } else {
                 target.innerHTML = options.fallbackHtml || "";
             }

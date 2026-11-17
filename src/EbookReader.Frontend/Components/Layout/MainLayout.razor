@@ -3,33 +3,157 @@
 @inject UserSessionService Session
 @inject EbookApiClient ApiClient
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
-<header class="navbar">
-    <a class="navbar-brand" href="/">📚 E-book Reader</a>
-    <nav class="navbar-links">
-        @if (Session.IsAuthenticated && Session.CurrentUser is not null)
-        {
-            <span>Logged in as: <strong>@Session.CurrentUser.Username</strong></span>
-            <a class="btn btn-outline btn-sm" href="/">My Library</a>
-            <button class="btn btn-outline btn-sm" @onclick="HandleLogoutAsync">Logout</button>
-        }
-        else
-        {
-            <a class="btn btn-outline btn-sm" href="/login">Login</a>
-            <a class="btn btn-primary btn-sm" href="/register">Register</a>
-        }
-    </nav>
-</header>
+<style>
+    .app-shell {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+    }
+    .app-main {
+        flex: 1;
+        width: 100%;
+        height: calc(100vh - 57px);
+        overflow: hidden;
+        display: flex;
+    }
+    .app-shell.is-reader .app-main {
+        height: 100vh;
+    }
+    .top-bar-hover-zone {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 14px;
+        z-index: 1000;
+    }
+    .app-shell.is-reader .navbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1001;
+        transform: translateY(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .app-shell.is-reader .top-bar-hover-zone:hover + .navbar,
+    .app-shell.is-reader .navbar:hover {
+        transform: translateY(0);
+    }
+    .workspace-split {
+        display: flex !important;
+        flex-direction: row !important;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+    .reader-main-stage {
+        flex: 1;
+        height: 100%;
+        overflow: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.75rem;
+        background: var(--stage-bg, #e2e8f0);
+    }
+    .left-sidebar {
+        width: 270px !important;
+        flex-shrink: 0 !important;
+        height: 100% !important;
+        overflow-y: auto;
+        background: var(--surface, #ffffff);
+        border-right: 1px solid var(--border, #e2e8f0);
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .right-sidebar {
+        width: 320px !important;
+        flex-shrink: 0 !important;
+        height: 100% !important;
+        margin-left: auto !important;
+        overflow-y: auto;
+        background: var(--surface, #ffffff);
+        border-left: 1px solid var(--border, #e2e8f0);
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+</style>
 
-<main class="container">
-    @Body
-</main>
+<div class="app-shell @(IsReaderPage ? "is-reader" : "")">
+    @if (IsReaderPage)
+    {
+        <div class="top-bar-hover-zone"></div>
+    }
+    <header class="navbar">
+        <a class="navbar-brand" href="/">@(Session.IsAuthenticated ? Session.HeaderTitle : "E-book Reader")</a>
+        <nav class="navbar-links">
+            <button class="btn btn-outline btn-sm" @onclick="ToggleDarkModeAsync" title="Toggle Dark Mode">@(Session.IsDarkMode ? "☀️ Light" : "🌙 Dark")</button>
+            @if (Session.IsAuthenticated && Session.CurrentUser is not null)
+            {
+                <span>Logged in as: <strong>@Session.CurrentUser.Username</strong></span>
+                <a class="btn btn-outline btn-sm" href="/">My Library</a>
+                <button class="btn btn-outline btn-sm" @onclick="HandleLogoutAsync">Logout</button>
+            }
+            else
+            {
+                <a class="btn btn-outline btn-sm" href="/login">Login</a>
+                <a class="btn btn-primary btn-sm" href="/register">Register</a>
+            }
+        </nav>
+    </header>
+
+    <main class="app-main">
+        @Body
+    </main>
+</div>
 
 @code {
+    private bool IsReaderPage => Navigation.Uri.Contains("/reader/", StringComparison.OrdinalIgnoreCase);
+
     protected override async Task OnInitializedAsync()
     {
         Session.OnChange += StateHasChanged;
+        Navigation.LocationChanged += HandleLocationChanged;
         await Session.EnsureInitializedAsync();
+        try
+        {
+            await JS.InvokeVoidAsync("ebookTheme.apply", Session.IsDarkMode);
+        }
+        catch { }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("ebookTheme.apply", Session.IsDarkMode);
+        }
+        catch { }
+    }
+
+    private async Task ToggleDarkModeAsync()
+    {
+        Session.ToggleDarkMode();
+        try
+        {
+            await JS.InvokeVoidAsync("ebookTheme.apply", Session.IsDarkMode);
+        }
+        catch { }
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task HandleLogoutAsync()
@@ -41,5 +165,6 @@
     public void Dispose()
     {
         Session.OnChange -= StateHasChanged;
+        Navigation.LocationChanged -= HandleLocationChanged;
     }
 }

@@ -197,7 +197,8 @@ public static class EbookApiEndpoints
                 user.Id,
                 id,
                 request.PageNumber,
-                request.ClientTimestampUtc);
+                request.ClientTimestampUtc,
+                request.ZoomLevel);
 
             return ToHttpResult(result);
         });

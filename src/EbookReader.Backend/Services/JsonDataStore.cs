@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using EbookReader.Backend.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -48,6 +49,9 @@ public class EbookDbContext : DbContext
             eb.Property(b => b.Pages).HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                 v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>());
+            eb.Property(b => b.TableOfContents).HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<TocItem>>(v, (JsonSerializerOptions?)null) ?? new List<TocItem>());
             eb.HasMany(b => b.Bookmarks).WithOne().HasForeignKey(bm => bm.BookId).OnDelete(DeleteBehavior.Cascade);
         });
     }
@@ -144,6 +148,30 @@ public class JsonDataStore : IDataStore
 
             await using var db = CreateDbContext();
             await db.Database.EnsureCreatedAsync();
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Books ADD COLUMN Author TEXT NOT NULL DEFAULT '';");
+            }
+            catch
+            {
+                // Column already exists
+            }
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Books ADD COLUMN ZoomLevel INTEGER NOT NULL DEFAULT 100;");
+            }
+            catch
+            {
+                // Column already exists
+            }
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Books ADD COLUMN TableOfContents TEXT NOT NULL DEFAULT '[]';");
+            }
+            catch
+            {
+                // Column already exists
+            }
 
             var users = await db.Users.AsNoTracking().ToListAsync();
             var sessions = await db.Sessions.AsNoTracking().ToListAsync();
@@ -155,6 +183,66 @@ public class JsonDataStore : IDataStore
                 Sessions = sessions,
                 Books = books
             };
+
+            foreach (var book in _snapshot.Books)
+            {
+                if (book.FileBytes != null && book.FileBytes.Length > 0)
+                {
+                    bool isEpub = string.Equals(book.Format, "EPUB", StringComparison.OrdinalIgnoreCase);
+                    bool needsRepagination = false;
+                    if (isEpub && book.Pages != null && book.Pages.Count > 0)
+                    {
+                        bool hasStyleTag = book.Pages.Any(p => p != null && p.Contains("<style", StringComparison.OrdinalIgnoreCase));
+                        bool hasOversizedPage = book.Pages.Any(p => p != null && p.Length > 5000);
+                        bool isOverFragmented = false;
+                        if (book.Pages.Count > 10)
+                        {
+                            double avgVisibleText = book.Pages.Average(p =>
+                            {
+                                if (string.IsNullOrWhiteSpace(p)) return 0;
+                                var plain = Regex.Replace(p, @"<[^>]+>", string.Empty);
+                                return System.Net.WebUtility.HtmlDecode(plain).Trim().Length;
+                            });
+                            isOverFragmented = avgVisibleText < 1500;
+                        }
+                        needsRepagination = hasStyleTag || hasOversizedPage || isOverFragmented;
+                    }
+
+                    bool missingToc = book.TableOfContents == null || book.TableOfContents.Count == 0;
+
+                    if (needsRepagination || missingToc)
+                    {
+                        var parser = new EbookValidatorAndParser();
+                        var parseResult = parser.ValidateAndParse(book.FileName, book.FileBytes);
+                        if (parseResult.IsSuccess && parseResult.Data != null)
+                        {
+                            bool updated = false;
+                            if (missingToc && parseResult.Data.TableOfContents != null && parseResult.Data.TableOfContents.Count > 0)
+                            {
+                                book.TableOfContents = parseResult.Data.TableOfContents;
+                                updated = true;
+                            }
+
+                            if (needsRepagination && parseResult.Data.Pages != null && parseResult.Data.Pages.Count > 0)
+                            {
+                                book.Pages = parseResult.Data.Pages;
+                                book.CurrentPage = Math.Clamp(book.CurrentPage, 1, book.Pages.Count);
+                                updated = true;
+                            }
+
+                            if (updated)
+                            {
+                                await db.Books
+                                    .Where(b => b.Id == book.Id)
+                                    .ExecuteUpdateAsync(s => s
+                                        .SetProperty(b => b.TableOfContents, book.TableOfContents)
+                                        .SetProperty(b => b.Pages, book.Pages)
+                                        .SetProperty(b => b.CurrentPage, book.CurrentPage));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         _loaded = true;
@@ -175,6 +263,30 @@ public class JsonDataStore : IDataStore
 
         await using var db = CreateDbContext();
         await db.Database.EnsureCreatedAsync();
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE Books ADD COLUMN Author TEXT NOT NULL DEFAULT '';");
+        }
+        catch
+        {
+            // Column already exists
+        }
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE Books ADD COLUMN ZoomLevel INTEGER NOT NULL DEFAULT 100;");
+        }
+        catch
+        {
+            // Column already exists
+        }
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE Books ADD COLUMN TableOfContents TEXT NOT NULL DEFAULT '[]';");
+        }
+        catch
+        {
+            // Column already exists
+        }
 
         await using var tx = await db.Database.BeginTransactionAsync();
 
@@ -199,6 +311,7 @@ public class JsonDataStore : IDataStore
                     Id = book.Id,
                     UserId = book.UserId,
                     Title = book.Title,
+                    Author = book.Author,
                     FileName = book.FileName,
                     Format = book.Format,
                     ContentHash = book.ContentHash,
@@ -206,6 +319,8 @@ public class JsonDataStore : IDataStore
                     FileBytes = book.FileBytes,
                     Pages = new List<string>(book.Pages),
                     CurrentPage = book.CurrentPage,
+                    ZoomLevel = book.ZoomLevel <= 0 ? 100 : book.ZoomLevel,
+                    TableOfContents = book.TableOfContents ?? new List<TocItem>(),
                     LastPositionUpdatedAtUtc = book.LastPositionUpdatedAtUtc,
                     UploadedAtUtc = book.UploadedAtUtc,
                     Bookmarks = new List<Bookmark>()
@@ -218,7 +333,8 @@ public class JsonDataStore : IDataStore
                     .Where(b => b.Id == book.Id)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(b => b.CurrentPage, book.CurrentPage)
-                        .SetProperty(b => b.LastPositionUpdatedAtUtc, book.LastPositionUpdatedAtUtc));
+                        .SetProperty(b => b.LastPositionUpdatedAtUtc, book.LastPositionUpdatedAtUtc)
+                        .SetProperty(b => b.ZoomLevel, book.ZoomLevel <= 0 ? 100 : book.ZoomLevel));
             }
         }
 

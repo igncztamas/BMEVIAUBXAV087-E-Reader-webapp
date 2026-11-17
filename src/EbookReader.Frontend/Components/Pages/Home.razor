@@ -9,79 +9,77 @@
 
 @if (Session.IsAuthenticated)
 {
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h1>My Library (@_books.Count books)</h1>
-    </div>
-
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
-    {
-        <div class="alert alert-danger" role="alert">@_errorMessage</div>
-    }
-
-    @if (!string.IsNullOrWhiteSpace(_successMessage))
-    {
-        <div class="alert alert-success" role="status">@_successMessage</div>
-    }
-
-    <div class="card">
-        <h2 style="margin-top: 0; font-size: 1.2rem;">Upload New E-book (PDF / EPUB)</h2>
-        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 1rem; align-items: end;">
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="book-title">Book Title (optional)</label>
-                <input id="book-title" class="form-control" @bind="_customTitle" />
-            </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
-                <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" multiple />
-            </div>
-            <div>
-                <button class="btn btn-primary" @onclick="HandleUploadSelectedFilesAsync" disabled="@(_selectedFiles.Count == 0 || _isBusy)">
-                    Upload
-                </button>
-            </div>
-        </div>
-    </div>
-
-    @if (_books.Count == 0)
-    {
-        <div class="card" style="text-align: center; color: var(--muted); padding: 2.5rem;">
-            You have no uploaded books yet. Upload a PDF or EPUB file above!
-        </div>
-    }
-    else
-    {
-        <div class="book-grid">
-            @foreach (var book in _books)
+    <div class="workspace-split" style="display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden;">
+        <div class="workspace-main" style="flex: 1; height: 100%; overflow-y: auto;">
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
             {
-                <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
-                    <div>
-                        <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
-                            <h3 style="margin: 0 0 0.35rem 0; font-size: 1.15rem;">@book.Title</h3>
-                            <span class="badge">@book.Format</span>
-                        </div>
-                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
-                            File: @book.FileName (@FormatSize(book.FileSizeBytes))
-                        </p>
-                        <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
-                            Reading position: <strong>Page @book.CurrentPage / @book.TotalPages</strong>
-                        </p>
-                        <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--muted);">
-                            Bookmarks: @book.BookmarkCount
-                        </p>
-                    </div>
+                <div class="alert alert-danger" role="alert">@_errorMessage</div>
+            }
 
-                    <div style="display: flex; gap: 0.5rem;">
-                        <a class="btn btn-primary btn-sm" style="flex: 1;" href="/reader/@book.Id">
-                            📖 Open (Page @book.CurrentPage)
-                        </a>
-                        <button class="btn btn-danger btn-sm" @onclick="() => HandleDeleteBookAsync(book.Id)">
-                            Delete
-                        </button>
-                    </div>
+            @if (!string.IsNullOrWhiteSpace(_successMessage))
+            {
+                <div class="alert alert-success" role="status">@_successMessage</div>
+            }
+
+            @if (_books.Count == 0)
+            {
+                <div class="card" style="text-align: center; color: var(--muted); padding: 2.5rem;">
+                    You have no uploaded books yet. Upload a PDF or EPUB file on the right!
+                </div>
+            }
+            else
+            {
+                <div class="book-grid">
+                    @foreach (var book in _books)
+                    {
+                        <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
+                                    <h3 style="margin: 0 0 0.35rem 0; font-size: 1.15rem;">@book.Title</h3>
+                                    <span class="badge">@book.Format</span>
+                                </div>
+                                <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
+                                    @(string.IsNullOrWhiteSpace(book.Author) ? book.FileName : book.Author) (@FormatSize(book.FileSizeBytes))
+                                </p>
+                                <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
+                                    Reading position: <strong>Page @book.CurrentPage / @book.TotalPages</strong>
+                                </p>
+                                <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--muted);">
+                                    Bookmarks: @book.BookmarkCount
+                                </p>
+                            </div>
+
+                            <div style="display: flex; gap: 0.5rem;">
+                                <a class="btn btn-primary btn-sm" style="flex: 1;" href="/reader/@book.Id">
+                                    📖 Open (Page @book.CurrentPage)
+                                </a>
+                                <button class="btn btn-danger btn-sm" @onclick="() => HandleDeleteBookAsync(book.Id)">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    }
                 </div>
             }
         </div>
-    }
+
+        <aside class="right-sidebar" style="width: 320px; flex-shrink: 0; height: 100%; overflow-y: auto; margin-left: auto;">
+            <div class="card" style="margin-bottom: 0;">
+                <h2 style="margin-top: 0; font-size: 1.15rem;">Upload New E-book (PDF / EPUB)</h2>
+                <div class="form-group">
+                    <label for="book-title">Book Title (optional)</label>
+                    <input id="book-title" class="form-control" @bind="_customTitle" />
+                </div>
+                <div class="form-group">
+                    <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
+                    <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" multiple />
+                </div>
+                <button class="btn btn-primary" style="width: 100%;" @onclick="HandleUploadSelectedFilesAsync" disabled="@(_selectedFiles.Count == 0 || _isBusy)">
+                    Upload
+                </button>
+            </div>
+        </aside>
+    </div>
 }
 
 @code {
@@ -94,6 +92,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Session.SetHeaderTitle("My Library");
         Session.OnChange += HandleSessionChanged;
         await Session.EnsureInitializedAsync();
         if (!Session.IsAuthenticated)
@@ -121,6 +120,7 @@
 
     private async Task LoadBooksAsync()
     {
+        Session.SetHeaderTitle("My Library");
         var result = await ApiClient.GetBooksAsync();
         if (result.IsSuccess && result.Data is not null)
         {

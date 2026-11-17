@@ -24,7 +24,9 @@ public record BookSummaryDto(
     int CurrentPage,
     DateTimeOffset LastPositionUpdatedAtUtc,
     DateTimeOffset UploadedAtUtc,
-    int BookmarkCount);
+    int BookmarkCount,
+    string? Author = null,
+    int ZoomLevel = 100);
 
 public record BookmarkDto(
     Guid Id,
@@ -32,6 +34,8 @@ public record BookmarkDto(
     string Name,
     int PageNumber,
     DateTimeOffset CreatedAtUtc);
+
+public record TocItemDto(string Title, int PageNumber, int Level);
 
 public record BookDetailDto(
     Guid Id,
@@ -45,7 +49,10 @@ public record BookDetailDto(
     string CurrentPageContent,
     DateTimeOffset LastPositionUpdatedAtUtc,
     DateTimeOffset UploadedAtUtc,
-    List<BookmarkDto> Bookmarks);
+    List<BookmarkDto> Bookmarks,
+    string? Author = null,
+    int ZoomLevel = 100,
+    List<TocItemDto>? TableOfContents = null);
 
 public record BookPageDto(
     Guid BookId,
@@ -57,7 +64,8 @@ public record BookPageDto(
 
 public record UpdateProgressRequest(
     int PageNumber,
-    DateTimeOffset? ClientTimestampUtc = null);
+    DateTimeOffset? ClientTimestampUtc = null,
+    int? ZoomLevel = null);
 
 public record UpdateProgressResponse(
     Guid BookId,
@@ -65,7 +73,8 @@ public record UpdateProgressResponse(
     int TotalPages,
     DateTimeOffset LastPositionUpdatedAtUtc,
     bool WasUpdated,
-    bool WasClamped);
+    bool WasClamped,
+    int ZoomLevel = 100);
 
 public record CreateBookmarkRequest(
     string Name,

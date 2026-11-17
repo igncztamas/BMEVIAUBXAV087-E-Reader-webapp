@@ -42,9 +42,15 @@ public class BookService : IBookService
 
         var parsed = parseResult.Data;
         var cleanFileName = Path.GetFileName(fileName.Trim());
-        var resolvedTitle = string.IsNullOrWhiteSpace(customTitle)
-            ? Path.GetFileNameWithoutExtension(cleanFileName)
-            : customTitle.Trim();
+        var resolvedTitle = !string.IsNullOrWhiteSpace(customTitle)
+            ? customTitle.Trim()
+            : (!string.IsNullOrWhiteSpace(parsed.MetadataTitle)
+                ? parsed.MetadataTitle.Trim()
+                : Path.GetFileNameWithoutExtension(cleanFileName));
+
+        var resolvedAuthor = !string.IsNullOrWhiteSpace(parsed.MetadataAuthor)
+            ? parsed.MetadataAuthor.Trim()
+            : cleanFileName;
 
         return await _dataStore.WriteAsync(db =>
         {
@@ -67,6 +73,7 @@ public class BookService : IBookService
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 Title = resolvedTitle,
+                Author = resolvedAuthor,
                 FileName = cleanFileName,
                 Format = parsed.Format,
                 ContentHash = parsed.ContentHash,
@@ -74,9 +81,11 @@ public class BookService : IBookService
                 FileBytes = fileBytes!,
                 Pages = parsed.Pages,
                 CurrentPage = 1,
+                ZoomLevel = 100,
                 LastPositionUpdatedAtUtc = now,
                 UploadedAtUtc = now,
-                Bookmarks = new List<Bookmark>()
+                Bookmarks = new List<Bookmark>(),
+                TableOfContents = parsed.TableOfContents ?? new List<TocItem>()
             };
 
             db.Books.Add(book);
@@ -146,7 +155,8 @@ public class BookService : IBookService
         Guid requestingUserId,
         Guid bookId,
         int requestedPageNumber,
-        DateTimeOffset? clientTimestampUtc = null)
+        DateTimeOffset? clientTimestampUtc = null,
+        int? zoomLevel = null)
     {
         return await _dataStore.WriteAsync(db =>
         {
@@ -176,13 +186,21 @@ public class BookService : IBookService
                 book.LastPositionUpdatedAtUtc = incomingTimestamp;
             }
 
+            if (zoomLevel.HasValue)
+            {
+                book.ZoomLevel = Math.Clamp(zoomLevel.Value, 50, 300);
+            }
+
+            int resolvedZoom = book.ZoomLevel <= 0 ? 100 : book.ZoomLevel;
+
             return ServiceResult<UpdateProgressResponse>.Success(new UpdateProgressResponse(
                 book.Id,
                 book.CurrentPage,
                 totalPages,
                 book.LastPositionUpdatedAtUtc,
                 shouldUpdate,
-                wasClamped));
+                wasClamped,
+                resolvedZoom));
         });
     }
 
@@ -342,7 +360,9 @@ public class BookService : IBookService
         book.CurrentPage,
         book.LastPositionUpdatedAtUtc,
         book.UploadedAtUtc,
-        book.Bookmarks.Count);
+        book.Bookmarks.Count,
+        string.IsNullOrWhiteSpace(book.Author) ? book.FileName : book.Author,
+        book.ZoomLevel <= 0 ? 100 : book.ZoomLevel);
 
     private static BookDetailDto MapToDetail(Book book)
     {
@@ -353,6 +373,10 @@ public class BookService : IBookService
         var bookmarks = book.Bookmarks
             .OrderBy(b => b.PageNumber)
             .Select(b => new BookmarkDto(b.Id, book.Id, b.Name, b.PageNumber, b.CreatedAtUtc))
+            .ToList();
+
+        var toc = (book.TableOfContents ?? new List<TocItem>())
+            .Select(t => new TocItemDto(t.Title, t.PageNumber, t.Level))
             .ToList();
 
         return new BookDetailDto(
@@ -367,6 +391,9 @@ public class BookService : IBookService
             currentContent,
             book.LastPositionUpdatedAtUtc,
             book.UploadedAtUtc,
-            bookmarks);
+            bookmarks,
+            string.IsNullOrWhiteSpace(book.Author) ? book.FileName : book.Author,
+            book.ZoomLevel <= 0 ? 100 : book.ZoomLevel,
+            toc);
     }
 }

@@ -22,15 +22,21 @@ public interface IUserSessionService
     string? Token { get; }
     UserInfoDto? CurrentUser { get; }
     bool IsAuthenticated { get; }
+    string HeaderTitle { get; }
+    bool IsDarkMode { get; }
     event Action? OnChange;
     Task EnsureInitializedAsync();
     void SetSession(string token, UserInfoDto user);
     void ClearSession();
+    void SetHeaderTitle(string title);
+    void SetDarkMode(bool isDark);
+    void ToggleDarkMode();
 }
 
 public class UserSessionService : IUserSessionService
 {
     private const string StorageKey = "ebook_auth_session";
+    private const string DarkModeStorageKey = "ebook_dark_mode";
     private readonly ProtectedLocalStorage? _storage;
     private bool _initialized;
     private Task? _initTask;
@@ -38,8 +44,35 @@ public class UserSessionService : IUserSessionService
     public string? Token { get; private set; }
     public UserInfoDto? CurrentUser { get; private set; }
     public bool IsAuthenticated => !string.IsNullOrWhiteSpace(Token) && CurrentUser is not null;
+    public string HeaderTitle { get; private set; } = "My Library";
+    public bool IsDarkMode { get; private set; }
 
     public event Action? OnChange;
+
+    public void SetHeaderTitle(string title)
+    {
+        if (HeaderTitle != title)
+        {
+            HeaderTitle = title;
+            OnChange?.Invoke();
+        }
+    }
+
+    public void SetDarkMode(bool isDark)
+    {
+        if (IsDarkMode != isDark)
+        {
+            IsDarkMode = isDark;
+            OnChange?.Invoke();
+
+            if (_storage is not null)
+            {
+                _ = SaveDarkModeAsync(isDark);
+            }
+        }
+    }
+
+    public void ToggleDarkMode() => SetDarkMode(!IsDarkMode);
 
     public UserSessionService(ProtectedLocalStorage? storage = null)
     {
@@ -66,6 +99,19 @@ public class UserSessionService : IUserSessionService
                 Token = result.Value.Token;
                 CurrentUser = result.Value.User;
                 OnChange?.Invoke();
+            }
+
+            try
+            {
+                var darkResult = await _storage!.GetAsync<bool>(DarkModeStorageKey);
+                if (darkResult.Success)
+                {
+                    IsDarkMode = darkResult.Value;
+                    OnChange?.Invoke();
+                }
+            }
+            catch
+            {
             }
         }
         catch
@@ -122,6 +168,17 @@ public class UserSessionService : IUserSessionService
         try
         {
             await _storage!.DeleteAsync(StorageKey);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task SaveDarkModeAsync(bool isDark)
+    {
+        try
+        {
+            await _storage!.SetAsync(DarkModeStorageKey, isDark);
         }
         catch
         {

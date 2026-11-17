@@ -13,7 +13,7 @@ public interface IEbookApiClient
     Task<ApiCallResult<BookDetailItemDto>> UploadBookAsync(string fileName, byte[] fileBytes, string? title = null);
     Task<ApiCallResult<BookDetailItemDto>> GetBookDetailAsync(Guid bookId);
     Task<ApiCallResult<BookPageItemDto>> GetBookPageAsync(Guid bookId, int pageNumber);
-    Task<ApiCallResult<UpdateProgressResponseDto>> UpdateProgressAsync(Guid bookId, int pageNumber, DateTimeOffset? clientTimestampUtc = null);
+    Task<ApiCallResult<UpdateProgressResponseDto>> UpdateProgressAsync(Guid bookId, int pageNumber, DateTimeOffset? clientTimestampUtc = null, int? zoomLevel = null);
     Task<ApiCallResult<BookmarkItemDto>> AddBookmarkAsync(Guid bookId, string name, int pageNumber);
     Task<ApiCallResult<bool>> DeleteBookmarkAsync(Guid bookId, Guid bookmarkId);
     Task<ApiCallResult<bool>> DeleteBookAsync(Guid bookId);
@@ -104,10 +104,11 @@ public class EbookApiClient : IEbookApiClient
     public async Task<ApiCallResult<UpdateProgressResponseDto>> UpdateProgressAsync(
         Guid bookId,
         int pageNumber,
-        DateTimeOffset? clientTimestampUtc = null)
+        DateTimeOffset? clientTimestampUtc = null,
+        int? zoomLevel = null)
     {
         using var req = CreateAuthorizedRequest(HttpMethod.Put, $"/api/books/{bookId}/progress");
-        req.Content = JsonContent.Create(new UpdateProgressRequestDto(pageNumber, clientTimestampUtc ?? DateTimeOffset.UtcNow));
+        req.Content = JsonContent.Create(new UpdateProgressRequestDto(pageNumber, clientTimestampUtc ?? DateTimeOffset.UtcNow, zoomLevel));
         var response = await _httpClient.SendAsync(req);
         return await ReadResponseAsync<UpdateProgressResponseDto>(response);
     }
