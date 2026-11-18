@@ -7,7 +7,7 @@
             <span class="badge">@Book.Format</span>
         </div>
         <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
-            @(string.IsNullOrWhiteSpace(Book.Author) ? Book.FileName : Book.Author) (@FormatSize(Book.FileSizeBytes))
+            @(string.IsNullOrWhiteSpace(Book.Author) ? Book.FileName : Book.Author)
         </p>
         <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
             Reading position: <strong>Page @Book.CurrentPage / @Book.TotalPages</strong>
@@ -45,7 +45,4 @@
 
     [Parameter]
     public EventCallback<Guid> OnDelete { get; set; }
-
-    private static string FormatSize(long bytes) =>
-        bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024.0:F1} KB";
 }

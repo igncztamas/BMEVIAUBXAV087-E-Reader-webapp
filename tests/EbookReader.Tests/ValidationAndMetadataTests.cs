@@ -66,5 +66,17 @@ public class ValidationAndMetadataTests
         var fallbackUpload = await books.UploadBookAsync(user.Id, "fallback_title.pdf", pdfNoTitle);
         Assert.IsTrue(fallbackUpload.IsSuccess);
         Assert.AreEqual("fallback_title", fallbackUpload.Data!.Title);
+
+        var customPdf = TestEbookFactory.CreateValidPdfBytesWithMetadata("Embedded PDF Title", "Embedded PDF Author", "Custom PDF page");
+        var customPdfUpload = await books.UploadBookAsync(user.Id, "custom_pdf_file.pdf", customPdf, customTitle: "Custom Book Title");
+        Assert.IsTrue(customPdfUpload.IsSuccess);
+        Assert.AreEqual("Custom Book Title", customPdfUpload.Data!.Title);
+        Assert.AreEqual("custom_pdf_file.pdf", customPdfUpload.Data.Author);
+
+        var customEpub = TestEbookFactory.CreateValidEpubBytesWithMetadata("Embedded EPUB Title", "Embedded EPUB Author", null, "Custom EPUB chapter");
+        var customEpubUpload = await books.UploadBookAsync(user.Id, "custom_epub_file.epub", customEpub, customTitle: "Custom Book Title");
+        Assert.IsTrue(customEpubUpload.IsSuccess);
+        Assert.AreEqual("Custom Book Title", customEpubUpload.Data!.Title);
+        Assert.AreEqual("custom_epub_file.epub", customEpubUpload.Data.Author);
     }
 }

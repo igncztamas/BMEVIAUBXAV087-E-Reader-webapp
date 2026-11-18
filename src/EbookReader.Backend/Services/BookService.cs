@@ -213,9 +213,11 @@ public class BookService : IBookService
                 ? parsed.MetadataTitle.Trim()
                 : Path.GetFileNameWithoutExtension(cleanFileName));
 
-        var resolvedAuthor = !string.IsNullOrWhiteSpace(parsed.MetadataAuthor)
-            ? parsed.MetadataAuthor.Trim()
-            : cleanFileName;
+        var resolvedAuthor = !string.IsNullOrWhiteSpace(customTitle)
+            ? cleanFileName
+            : (!string.IsNullOrWhiteSpace(parsed.MetadataAuthor)
+                ? parsed.MetadataAuthor.Trim()
+                : cleanFileName);
 
         var now = DateTimeOffset.UtcNow;
         return new Book

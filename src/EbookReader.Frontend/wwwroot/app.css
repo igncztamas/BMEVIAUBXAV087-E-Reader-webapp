@@ -4,8 +4,14 @@
     --stage-bg: #e2e8f0;
     --reader-paper: #fffef9;
     --reader-text: #0f172a;
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-soft: rgba(124, 58, 237, 0.12);
+    --btn-outline-bg: #f5f3ff;
+    --btn-outline-hover: #ede9fe;
+    --btn-outline-border: #c4b5fd;
+    --badge-bg: #ede9fe;
+    --badge-text: #5b21b6;
     --danger: #dc2626;
     --danger-bg: #fef2f2;
     --success: #16a34a;
@@ -22,8 +28,14 @@
     --stage-bg: #0f172a;
     --reader-paper: #1e293b;
     --reader-text: #e2e8f0;
-    --primary: #3b82f6;
-    --primary-hover: #2563eb;
+    --primary: #8b5cf6;
+    --primary-hover: #7c3aed;
+    --primary-soft: rgba(139, 92, 246, 0.22);
+    --btn-outline-bg: #262b40;
+    --btn-outline-hover: #353b57;
+    --btn-outline-border: #5b4b8a;
+    --badge-bg: rgba(139, 92, 246, 0.24);
+    --badge-text: #ddd6fe;
     --danger: #f87171;
     --danger-bg: rgba(220, 38, 38, 0.15);
     --success: #4ade80;
@@ -178,9 +190,31 @@ body {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+.auth-page {
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 3.5rem 1.25rem;
+}
+
 .auth-card {
-    max-width: 440px;
-    margin: 3rem auto;
+    width: 100%;
+    max-width: 420px;
+    margin: 0;
+    height: auto;
+}
+
+.auth-card a {
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.auth-card a:hover {
+    text-decoration: underline;
 }
 
 .btn {
@@ -195,32 +229,52 @@ body {
     font-size: 0.92rem;
     cursor: pointer;
     text-decoration: none;
-    transition: background-color 0.15s;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    transition: background-color 0.15s, border-color 0.15s, transform 0.08s, box-shadow 0.15s;
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
 .btn-primary {
     background: var(--primary);
     color: #fff;
+    border-color: var(--primary-hover);
+    box-shadow: 0 2px 4px rgba(124, 58, 237, 0.25);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
     background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 .btn-outline {
-    background: transparent;
-    border-color: var(--border);
+    background: var(--btn-outline-bg);
+    border-color: var(--btn-outline-border);
     color: var(--text);
 }
 
-.btn-outline:hover {
-    background: var(--border);
-    color: var(--text);
+.btn-outline:hover:not(:disabled) {
+    background: var(--btn-outline-hover);
+    border-color: var(--primary);
 }
 
 .btn-danger {
     background: var(--danger);
     color: #fff;
+    border-color: #b91c1c;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+    border-color: #991b1b;
 }
 
 .btn-sm {
@@ -247,6 +301,18 @@ body {
     font-size: 0.95rem;
     background-color: var(--input-bg, #ffffff);
     color: var(--text);
+    transition: border-color 0.15s, outline 0.15s;
+}
+
+.form-control:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background-color: var(--border);
+}
+
+.form-control:focus {
+    outline: 2px solid var(--primary);
+    border-color: var(--primary);
 }
 
 .alert {
@@ -280,13 +346,8 @@ body {
     border-radius: 999px;
     font-size: 0.75rem;
     font-weight: 700;
-    background: #dbeafe;
-    color: #1e40af;
-}
-
-:root[data-theme="dark"] .badge {
-    background: rgba(59, 130, 246, 0.2);
-    color: #93c5fd;
+    background: var(--badge-bg);
+    color: var(--badge-text);
 }
 
 .reader-page-box {
@@ -365,8 +426,8 @@ body {
 .toc-btn {
     width: 100%;
     text-align: left;
-    background: transparent;
-    border: none;
+    background: var(--btn-outline-bg);
+    border: 1px solid var(--border);
     border-radius: 0.4rem;
     padding: 0.45rem 0.6rem;
     color: var(--text);
@@ -376,15 +437,18 @@ body {
     justify-content: space-between;
     align-items: baseline;
     gap: 0.5rem;
-    transition: background-color 0.15s;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .toc-btn:hover {
-    background: var(--border);
+    background: var(--btn-outline-hover);
+    border-color: var(--primary);
 }
 
 .toc-btn.active, .toc-item.active > .toc-btn {
-    background: rgba(59, 130, 246, 0.15);
+    background: var(--primary-soft);
+    border-color: var(--primary);
     color: var(--primary);
     font-weight: 600;
 }
@@ -437,5 +501,5 @@ body {
 }
 
 .textLayer ::selection {
-    background: rgba(37, 99, 246, 0.28);
+    background: rgba(124, 58, 237, 0.28);
 }

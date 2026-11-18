@@ -5,31 +5,33 @@
 
 <PageTitle>Create Account – E-book Reader</PageTitle>
 
-<div class="card auth-card">
-    <h1>Create Account</h1>
+<div class="auth-page">
+    <div class="card auth-card">
+        <h1>Create Account</h1>
 
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
-    {
-        <div class="alert alert-danger" role="alert">@_errorMessage</div>
-    }
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger" role="alert">@_errorMessage</div>
+        }
 
-    <div class="form-group">
-        <label for="reg-username">Username (min. 3 characters)</label>
-        <input id="reg-username" class="form-control" @bind="_username" />
+        <div class="form-group">
+            <label for="reg-username">Username (min. 3 characters)</label>
+            <input id="reg-username" class="form-control" @bind="_username" />
+        </div>
+
+        <div class="form-group">
+            <label for="reg-password">Password (min. 4 characters)</label>
+            <input id="reg-password" type="password" class="form-control" @bind="_password" />
+        </div>
+
+        <button class="btn btn-primary" style="width: 100%;" @onclick="HandleRegisterAsync" disabled="@_isSubmitting">
+            @(_isSubmitting ? "Registering..." : "Register and Login")
+        </button>
+
+        <p style="margin-top: 1rem; text-align: center; font-size: 0.9rem;">
+            Already have an account? <a href="/login">Login!</a>
+        </p>
     </div>
-
-    <div class="form-group">
-        <label for="reg-password">Password (min. 4 characters)</label>
-        <input id="reg-password" type="password" class="form-control" @bind="_password" />
-    </div>
-
-    <button class="btn btn-primary" style="width: 100%;" @onclick="HandleRegisterAsync" disabled="@_isSubmitting">
-        @(_isSubmitting ? "Registering..." : "Register and Login")
-    </button>
-
-    <p style="margin-top: 1rem; text-align: center; font-size: 0.9rem;">
-        Already have an account? <a href="/login">Login!</a>
-    </p>
 </div>
 
 @code {

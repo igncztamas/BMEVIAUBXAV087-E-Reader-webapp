@@ -7,7 +7,7 @@
         <h2 style="margin-top: 0; font-size: 1.15rem;">Upload New E-book (PDF / EPUB)</h2>
         <div class="form-group">
             <label for="book-title">Book Title (optional)</label>
-            <input id="book-title" class="form-control" @bind="_customTitle" />
+            <input id="book-title" class="form-control" @bind="_customTitle" disabled="@(_selectedFiles.Count > 1)" />
         </div>
         <div class="form-group">
             <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
@@ -64,6 +64,11 @@
             {
                 errors.Add($"{file.Name}: {ex.Message}");
             }
+        }
+
+        if (_selectedFiles.Count > 1)
+        {
+            _customTitle = null;
         }
 
         if (errors.Count > 0)
