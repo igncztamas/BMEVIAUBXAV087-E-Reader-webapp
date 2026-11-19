@@ -26,7 +26,7 @@ You are the Testing Subagent working exclusively inside `/home/igncz/Projects/vi
 
 ### 1.1. Goal & Roles
 - Web application allowing users to upload, manage, and read their own e-book files (`.pdf` and `.epub`), automatically saving reading positions, zoom/font-size preferences, table of contents navigation, and named bookmarks.
-- **Visitor (Látogató)**: Can only access the login and registration views.
+- **Visitor (Látogató)**: Can only access the public landing page (`/`), as well as the login (`/login`) and registration (`/register`) views.
 - **Authenticated User (Bejelentkezett felhasználó)**: Has a personal account, accesses their own library, uploads new files (including batch uploads), deletes books, reads books, adjusts zoom/font size, navigates via table of contents, and creates/jumps to/deletes bookmarks.
 
 ### 1.2. Uncertainties & Resolutions
@@ -97,7 +97,7 @@ public record RegisterRequest(string Username, string Password);
 public record LoginRequest(string Username, string Password);
 public record UserDto(Guid Id, string Username);
 public record AuthResponse(string Token, UserDto User);
-public record ApiErrorResponse(string Error, string Code);
+public record ApiErrorResponse(string Message, string ErrorCode);
 
 public record UploadBookRequest(string FileName, string FileBytesBase64, string? Title = null);
 public record BookSummaryDto(Guid Id, Guid UserId, string Title, string FileName, string Format, long FileSizeBytes, int TotalPages, int CurrentPage, DateTimeOffset LastPositionUpdatedAtUtc, DateTimeOffset UploadedAtUtc, int BookmarkCount, string? Author = null, int ZoomLevel = 100);

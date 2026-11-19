@@ -69,7 +69,7 @@ public class BookService : IBookService
             }
 
             // Create domain entity and persist to library
-            var book = CreateBookEntity(userId, cleanFileName, fileBytes!, customTitle, parsed);
+            var book = BookMapper.CreateBookEntity(userId, cleanFileName, fileBytes!, customTitle, parsed);
             db.Books.Add(book);
             return ServiceResult<BookDetailDto>.Success(book.ToDetail(), 201);
         });
@@ -103,11 +103,15 @@ public class BookService : IBookService
                 return failure!;
             }
 
+            // Ensure on-demand page content is loaded
+            book!.EnsureContentLoaded();
+
             // Clamp requested page to valid range [1, TotalPages] without throwing an error
-            int totalPages = Math.Max(1, book!.Pages.Count);
+            int totalPages = Math.Max(1, book.TotalPages > 0 ? book.TotalPages : book.Pages.Count);
             int clampedPage = Math.Clamp(requestedPageNumber, 1, totalPages);
+            string content = (book.Pages.Count > 0 && clampedPage <= book.Pages.Count) ? book.Pages[clampedPage - 1] : string.Empty;
             return ServiceResult<BookPageDto>.Success(new BookPageDto(
-                book.Id, requestedPageNumber, clampedPage, totalPages, book.Pages[clampedPage - 1], clampedPage != requestedPageNumber));
+                book.Id, requestedPageNumber, clampedPage, totalPages, content, clampedPage != requestedPageNumber));
         });
     }
 
@@ -125,7 +129,7 @@ public class BookService : IBookService
             }
 
             // Clamp page to valid bounds
-            int totalPages = Math.Max(1, book!.Pages.Count);
+            int totalPages = Math.Max(1, book!.TotalPages > 0 ? book.TotalPages : book.Pages.Count);
             int clampedPage = Math.Clamp(requestedPageNumber, 1, totalPages);
             var timestamp = clientTimestampUtc ?? DateTimeOffset.UtcNow;
 
@@ -165,7 +169,7 @@ public class BookService : IBookService
             }
 
             // Clamp target page
-            int totalPages = Math.Max(1, book!.Pages.Count);
+            int totalPages = Math.Max(1, book!.TotalPages > 0 ? book.TotalPages : book.Pages.Count);
             int clampedPage = Math.Clamp(pageNumber, 1, totalPages);
 
             // Duplicate detection: prevent bookmarks on same page or with same name in this book
@@ -235,48 +239,10 @@ public class BookService : IBookService
                 return failure!;
             }
 
-            return ServiceResult<(byte[] FileBytes, string Format, string FileName)>.Success((book!.FileBytes, book.Format, book.FileName));
+            // Ensure full file bytes are loaded into memory
+            book!.EnsureContentLoaded();
+
+            return ServiceResult<(byte[] FileBytes, string Format, string FileName)>.Success((book.FileBytes, book.Format, book.FileName));
         });
-    }
-
-    /// <summary>
-    /// Factory helper that builds a new <see cref="Book"/> entity with resolved metadata, defaults, and timestamps.
-    /// </summary>
-    private static Book CreateBookEntity(Guid userId, string cleanFileName, byte[] fileBytes, string? customTitle, ParsedEbook parsed)
-    {
-        // Resolve title: custom title > metadata title > filename without extension
-        var resolvedTitle = !string.IsNullOrWhiteSpace(customTitle)
-            ? customTitle.Trim()
-            : (!string.IsNullOrWhiteSpace(parsed.MetadataTitle)
-                ? parsed.MetadataTitle.Trim()
-                : Path.GetFileNameWithoutExtension(cleanFileName));
-
-        // Resolve author: when customTitle provided, use cleanFileName; otherwise metadata author > cleanFileName
-        var resolvedAuthor = !string.IsNullOrWhiteSpace(customTitle)
-            ? cleanFileName
-            : (!string.IsNullOrWhiteSpace(parsed.MetadataAuthor)
-                ? parsed.MetadataAuthor.Trim()
-                : cleanFileName);
-
-        var now = DateTimeOffset.UtcNow;
-        return new Book
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Title = resolvedTitle,
-            Author = resolvedAuthor,
-            FileName = cleanFileName,
-            Format = parsed.Format,
-            ContentHash = parsed.ContentHash,
-            FileSizeBytes = fileBytes.Length,
-            FileBytes = fileBytes,
-            Pages = parsed.Pages,
-            CurrentPage = 1,
-            ZoomLevel = 100,
-            LastPositionUpdatedAtUtc = now,
-            UploadedAtUtc = now,
-            Bookmarks = new List<Bookmark>(),
-            TableOfContents = parsed.TableOfContents ?? new List<TocItem>()
-        };
     }
 }

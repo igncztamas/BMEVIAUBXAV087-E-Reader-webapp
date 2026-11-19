@@ -1,6 +1,5 @@
 namespace EbookReader.Backend.Services;
 
-using System.Text.RegularExpressions;
 using EbookReader.Backend.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,55 +17,71 @@ public static class DataStoreBackfillHelper
     {
         foreach (var book in books)
         {
-            // Skip books without stored file bytes
-            if (book.FileBytes == null || book.FileBytes.Length == 0) continue;
+            BackfillBookIfNeeded(book, db);
+        }
+        await Task.CompletedTask;
+    }
 
-            bool needsRepagination = NeedsRepagination(book);
-            bool missingToc = book.TableOfContents == null || book.TableOfContents.Count == 0;
+    /// <summary>
+    /// Backfills table of contents and repaginates pages for a single book when required.
+    /// </summary>
+    /// <param name="book">The book entity to check and backfill.</param>
+    /// <param name="db">The database context used to persist backfilled data.</param>
+    public static void BackfillBookIfNeeded(Book book, EbookDbContext db)
+    {
+        // Skip books without stored file bytes
+        if (book.FileBytes == null || book.FileBytes.Length == 0) return;
 
-            // Skip if book already has valid pagination and table of contents
-            if (!needsRepagination && !missingToc) continue;
+        bool needsRepagination = NeedsRepagination(book);
 
-            // Re-parse the book file to extract updated pagination and TOC
-            var parser = new EbookValidatorAndParser();
-            var parseResult = parser.ValidateAndParse(book.FileName, book.FileBytes);
-            if (!parseResult.IsSuccess || parseResult.Data == null) continue;
+        // Only EPUBs with null TOC are candidates for TOC backfill; PDFs without outlines legitimately have []
+        bool isEpub = string.Equals(book.Format, "EPUB", StringComparison.OrdinalIgnoreCase);
+        bool missingToc = isEpub && book.TableOfContents == null;
 
-            bool updated = false;
+        // Skip if book already has clean pagination and table of contents
+        if (!needsRepagination && !missingToc) return;
 
-            // Backfill TOC if missing
-            if (missingToc && parseResult.Data.TableOfContents is { Count: > 0 })
-            {
-                book.TableOfContents = parseResult.Data.TableOfContents;
-                updated = true;
-            }
+        // Re-parse the book file to extract updated pagination and TOC
+        var parser = new EbookValidatorAndParser();
+        var parseResult = parser.ValidateAndParse(book.FileName, book.FileBytes);
+        if (!parseResult.IsSuccess || parseResult.Data == null) return;
 
-            // Repaginate pages and clamp current position if needed
-            if (needsRepagination && parseResult.Data.Pages is { Count: > 0 })
-            {
-                book.Pages = parseResult.Data.Pages;
-                book.CurrentPage = Math.Clamp(book.CurrentPage, 1, book.Pages.Count);
-                updated = true;
-            }
+        bool updated = false;
 
-            // Persist changes to SQLite
-            if (updated)
-            {
-                await db.Books
-                    .Where(b => b.Id == book.Id)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(b => b.TableOfContents, book.TableOfContents)
-                        .SetProperty(b => b.Pages, book.Pages)
-                        .SetProperty(b => b.CurrentPage, book.CurrentPage));
-            }
+        // Backfill TOC if missing
+        if (missingToc)
+        {
+            book.TableOfContents = parseResult.Data.TableOfContents ?? new List<TocItem>();
+            updated = true;
+        }
+
+        // Repaginate pages and clamp current position if needed
+        if (needsRepagination && parseResult.Data.Pages is { Count: > 0 })
+        {
+            book.Pages = parseResult.Data.Pages;
+            book.TotalPages = book.Pages.Count;
+            book.CurrentPage = Math.Clamp(book.CurrentPage, 1, book.Pages.Count);
+            updated = true;
+        }
+
+        // Persist changes to SQLite
+        if (updated)
+        {
+            db.Books
+                .Where(b => b.Id == book.Id)
+                .ExecuteUpdate(s => s
+                    .SetProperty(b => b.TableOfContents, book.TableOfContents)
+                    .SetProperty(b => b.Pages, book.Pages)
+                    .SetProperty(b => b.TotalPages, book.TotalPages)
+                    .SetProperty(b => b.CurrentPage, book.CurrentPage));
         }
     }
 
     /// <summary>
-    /// Determines whether an EPUB book requires repagination due to style tags, oversized pages, or fragmentation.
+    /// Determines whether an EPUB book requires repagination due to raw style tag contamination.
     /// </summary>
     /// <param name="book">The book entity to check.</param>
-    /// <returns>True if the book should be repaginated; otherwise false.</returns>
+    /// <returns>True if the book contains style tags in its page HTML; otherwise false.</returns>
     private static bool NeedsRepagination(Book book)
     {
         // Only EPUB books with existing pages are candidates for repagination
@@ -76,23 +91,7 @@ public static class DataStoreBackfillHelper
             return false;
         }
 
-        // Check for style tag contamination or oversized text blocks
-        bool hasStyleTag = book.Pages.Any(p => p != null && p.Contains("<style", StringComparison.OrdinalIgnoreCase));
-        bool hasOversizedPage = book.Pages.Any(p => p != null && p.Length > 5000);
-        bool isOverFragmented = false;
-
-        // Check if pages are over-fragmented with too little visible text per page
-        if (book.Pages.Count > 10)
-        {
-            double avgVisibleText = book.Pages.Average(p =>
-            {
-                if (string.IsNullOrWhiteSpace(p)) return 0;
-                var plain = Regex.Replace(p, @"<[^>]+>", string.Empty);
-                return System.Net.WebUtility.HtmlDecode(plain).Trim().Length;
-            });
-            isOverFragmented = avgVisibleText < 1500;
-        }
-
-        return hasStyleTag || hasOversizedPage || isOverFragmented;
+        // Only trigger repagination if raw style tags leaked into page HTML from legacy parser
+        return book.Pages.Any(p => p != null && p.Contains("<style", StringComparison.OrdinalIgnoreCase));
     }
 }

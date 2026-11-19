@@ -1,5 +1,7 @@
 namespace EbookReader.Backend.Models;
 
+using System.Text.Json.Serialization;
+
 /// <summary>
 /// Domain entity representing an uploaded e-book (PDF or EPUB) with its content, progress, and bookmarks.
 /// </summary>
@@ -35,6 +37,9 @@ public class Book
     /// <summary>HTML or text content for each extracted page (1-based indexing).</summary>
     public List<string> Pages { get; set; } = new();
 
+    /// <summary>Total number of pages in the book.</summary>
+    public int TotalPages { get; set; }
+
     /// <summary>Current reading page position (1 to TotalPages).</summary>
     public int CurrentPage { get; set; } = 1;
 
@@ -52,4 +57,18 @@ public class Book
 
     /// <summary>Hierarchical table of contents extracted from the document.</summary>
     public List<TocItem> TableOfContents { get; set; } = new();
+
+    [JsonIgnore]
+    private Action<Book>? _contentLoader;
+
+    /// <summary>Registers an on-demand content loader callback for lazy loading large book data.</summary>
+    public void SetContentLoader(Action<Book> loader) => _contentLoader = loader;
+
+    /// <summary>Ensures that full book content (Pages, FileBytes, TableOfContents) is loaded from persistent storage.</summary>
+    public void EnsureContentLoaded()
+    {
+        var loader = _contentLoader;
+        _contentLoader = null;
+        loader?.Invoke(this);
+    }
 }

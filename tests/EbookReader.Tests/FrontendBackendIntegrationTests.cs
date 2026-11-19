@@ -36,13 +36,16 @@ public class FrontendBackendIntegrationTests
         var (auth, books, _) = TestServiceFactory.CreateServices();
         var (apiClient, session) = CreateClient(auth, books);
 
-        // Visitor starts unauthenticated, then registers and populates session state.
+        // Visitor starts unauthenticated, then registers and populates session state (firing OnChange).
+        int sessionChangeCount = 0;
+        session.OnChange += () => sessionChangeCount++;
         Assert.IsFalse(session.IsAuthenticated);
 
         var reg = await apiClient.RegisterAsync("frontend_user", "Secret1234");
         Assert.IsTrue(reg.IsSuccess);
         Assert.IsTrue(session.IsAuthenticated);
         Assert.AreEqual("frontend_user", session.CurrentUser?.Username);
+        Assert.AreEqual(1, sessionChangeCount);
 
         // Upload a 3-chapter EPUB and verify chapter 2 content via page endpoint.
         var epubBytes = TestEbookFactory.CreateValidEpubBytes(

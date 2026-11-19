@@ -128,19 +128,26 @@ public class AuthAndLibraryTests
         var alice = (await auth.RegisterAsync("alice", "AlicePass1")).Data!.User;
         var bob = (await auth.RegisterAsync("bob", "BobPass1")).Data!.User;
 
-        // Invalid password login must return 401 InvalidCredentials.
+        // Invalid password and unknown username logins must both return 401 InvalidCredentials.
         var badLogin = await auth.LoginAsync("alice", "WrongPassword");
         Assert.IsFalse(badLogin.IsSuccess);
         Assert.AreEqual(401, badLogin.StatusCode);
         Assert.AreEqual(EbookErrorCodes.InvalidCredentials, badLogin.ErrorCode);
 
-        // Alice uploads a private book that Bob must not be able to inspect or modify.
+        var unknownLogin = await auth.LoginAsync("nonexistent_user", "Password123");
+        Assert.IsFalse(unknownLogin.IsSuccess);
+        Assert.AreEqual(401, unknownLogin.StatusCode);
+        Assert.AreEqual(EbookErrorCodes.InvalidCredentials, unknownLogin.ErrorCode);
+
+        // Alice uploads a private book that Bob must not be able to see in his library, inspect, or modify.
         var aliceBook = (await books.UploadBookAsync(
             alice.Id,
             "alice_secret.pdf",
             TestEbookFactory.CreateValidPdfBytes("Alice private content"))).Data!;
 
-        // Cross-user detail, page read, progress update, and deletion must all return 403 ForbiddenBookAccess.
+        Assert.AreEqual(0, (await books.GetUserBooksAsync(bob.Id)).Count);
+
+        // Cross-user detail, page read, progress update, bookmark creation, and deletion must all return 403 ForbiddenBookAccess.
         var bobReadDetail = await books.GetBookDetailAsync(bob.Id, aliceBook.Id);
         Assert.IsFalse(bobReadDetail.IsSuccess);
         Assert.AreEqual(403, bobReadDetail.StatusCode);
@@ -155,6 +162,11 @@ public class AuthAndLibraryTests
         Assert.IsFalse(bobUpdateProgress.IsSuccess);
         Assert.AreEqual(403, bobUpdateProgress.StatusCode);
         Assert.AreEqual(EbookErrorCodes.ForbiddenBookAccess, bobUpdateProgress.ErrorCode);
+
+        var bobAddBookmark = await books.AddBookmarkAsync(bob.Id, aliceBook.Id, "Unauthorized", 1);
+        Assert.IsFalse(bobAddBookmark.IsSuccess);
+        Assert.AreEqual(403, bobAddBookmark.StatusCode);
+        Assert.AreEqual(EbookErrorCodes.ForbiddenBookAccess, bobAddBookmark.ErrorCode);
 
         var bobDelete = await books.DeleteBookAsync(bob.Id, aliceBook.Id);
         Assert.IsFalse(bobDelete.IsSuccess);

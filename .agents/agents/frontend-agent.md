@@ -27,7 +27,7 @@ You are the Frontend Subagent responsible exclusively for `/home/igncz/Projects/
 - `Services/`: `IUserSessionService.cs`, `UserSessionService.cs`, `IEbookApiClient.cs`, `EbookApiClient.cs`.
 - `Components/Layout/MainLayout.razor`: Top navbar (dynamic title, dark mode toggle, auto-hide in reader) and app shell.
 - `Components/Pages/`:
-  - `Home.razor` (`/` and `/library`): Uses `Components/Library/BookCard.razor` and `Components/Library/UploadSidebar.razor`.
+  - `Home.razor` (`/` and `/library`): Shows a public welcome card with Login/Register buttons for unauthenticated visitors on `/`, or the authenticated user's personal library using `Components/Library/SearchSidebar.razor`, `Components/Library/BookCard.razor`, and `Components/Library/UploadSidebar.razor`.
   - `Login.razor` (`/login`) & `Register.razor` (`/register`).
   - `Reader.razor` (`/reader/{BookId:guid}`): Orchestrates `#ebook-render-target` with `Components/Reader/TocSidebar.razor` and `Components/Reader/ReaderControlsSidebar.razor`.
 - `wwwroot/`: `app.css` and `ebook-renderer.js` (`PDF.js` canvas + text layer, EPUB `.epub-page-sheet`, `ebookTheme`).

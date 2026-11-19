@@ -47,6 +47,28 @@ public class EbookDbContext : DbContext
     /// <summary>Database set for user bookmarks.</summary>
     public DbSet<Bookmark> Bookmarks => Set<Bookmark>();
 
+    /// <summary>
+    /// Ensures database creation and applies idempotent column additions for backward-compatible schemas.
+    /// </summary>
+    public async Task EnsureCustomSchemaAsync()
+    {
+        await Database.EnsureCreatedAsync();
+
+        string[] alterQueries =
+        [
+            "ALTER TABLE Books ADD COLUMN Author TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE Books ADD COLUMN ZoomLevel INTEGER NOT NULL DEFAULT 100;",
+            "ALTER TABLE Books ADD COLUMN TableOfContents TEXT NOT NULL DEFAULT '[]';",
+            "ALTER TABLE Books ADD COLUMN TotalPages INTEGER NOT NULL DEFAULT 0;"
+        ];
+
+        // Safely execute idempotent ALTER TABLE statements
+        foreach (var sql in alterQueries)
+        {
+            try { await Database.ExecuteSqlRawAsync(sql); } catch { /* Column already exists */ }
+        }
+    }
+
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

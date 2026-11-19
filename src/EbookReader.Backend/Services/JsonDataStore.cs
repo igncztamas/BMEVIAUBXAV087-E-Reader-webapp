@@ -10,6 +10,7 @@ public class JsonDataStore : IDataStore
 {
     private readonly string _filePath;
     private readonly SemaphoreSlim _mutex = new(1, 1);
+    private readonly DataStoreSyncHelper _syncHelper = new();
     private DatabaseSnapshot _snapshot = new();
     private bool _loaded;
 
@@ -74,20 +75,122 @@ public class JsonDataStore : IDataStore
         EnsureDirectoryExists();
 
         await using var db = CreateDbContext();
-        await EnsureSchemaAsync(db);
+        await db.EnsureCustomSchemaAsync();
 
-        // Load tables into in-memory snapshot
+        // One-time migration: populate TotalPages for existing books created before this column existed
+        if (await db.Books.AnyAsync(b => b.TotalPages <= 0))
+        {
+            var legacyBooks = await db.Books
+                .Where(b => b.TotalPages <= 0)
+                .Select(b => new { b.Id, b.Pages })
+                .ToListAsync();
+
+            foreach (var lb in legacyBooks)
+            {
+                int count = Math.Max(1, lb.Pages?.Count ?? 0);
+                await db.Books
+                    .Where(b => b.Id == lb.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(b => b.TotalPages, count));
+            }
+        }
+
+        // Project lightweight book metadata without loading FileBytes or Pages JSON into memory
+        var bookMetadata = await db.Books
+            .AsNoTracking()
+            .Select(b => new
+            {
+                b.Id,
+                b.UserId,
+                b.Title,
+                b.Author,
+                b.FileName,
+                b.Format,
+                b.ContentHash,
+                b.FileSizeBytes,
+                b.TotalPages,
+                b.CurrentPage,
+                b.ZoomLevel,
+                b.LastPositionUpdatedAtUtc,
+                b.UploadedAtUtc
+            })
+            .ToListAsync();
+
+        var bookmarks = await db.Bookmarks.AsNoTracking().ToListAsync();
+        var bookmarksByBook = bookmarks.GroupBy(bm => bm.BookId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var books = bookMetadata.Select(m =>
+        {
+            var book = new Book
+            {
+                Id = m.Id,
+                UserId = m.UserId,
+                Title = m.Title,
+                Author = m.Author,
+                FileName = m.FileName,
+                Format = m.Format,
+                ContentHash = m.ContentHash,
+                FileSizeBytes = m.FileSizeBytes,
+                TotalPages = m.TotalPages > 0 ? m.TotalPages : 1,
+                CurrentPage = m.CurrentPage,
+                ZoomLevel = m.ZoomLevel,
+                LastPositionUpdatedAtUtc = m.LastPositionUpdatedAtUtc,
+                UploadedAtUtc = m.UploadedAtUtc,
+                Pages = new List<string>(),
+                Bookmarks = bookmarksByBook.TryGetValue(m.Id, out var bList) ? bList : new List<Bookmark>(),
+                TableOfContents = new List<TocItem>()
+            };
+
+            AttachContentLoader(book);
+            return book;
+        }).ToList();
+
+        // Load users, sessions, and lightweight books into in-memory snapshot
         _snapshot = new DatabaseSnapshot
         {
             Users = await db.Users.AsNoTracking().ToListAsync(),
             Sessions = await db.Sessions.AsNoTracking().ToListAsync(),
-            Books = await db.Books.Include(b => b.Bookmarks).AsNoTracking().ToListAsync()
+            Books = books
         };
 
-        // Run background backfill migration for books missing TOC or repagination
-        await DataStoreBackfillHelper.BackfillExistingBooksAsync(_snapshot.Books, db);
+        // Initialize differential tracking cache
+        _syncHelper.InitializePersistedState(_snapshot);
 
         _loaded = true;
+    }
+
+    /// <summary>
+    /// Attaches an on-demand content loader callback that loads FileBytes, Pages, and TableOfContents when accessed.
+    /// </summary>
+    private void AttachContentLoader(Book targetBook)
+    {
+        targetBook.SetContentLoader(b =>
+        {
+            using var contentDb = CreateDbContext();
+            var content = contentDb.Books
+                .AsNoTracking()
+                .Where(x => x.Id == b.Id)
+                .Select(x => new
+                {
+                    x.FileBytes,
+                    x.Pages,
+                    x.TableOfContents,
+                    x.TotalPages
+                })
+                .FirstOrDefault();
+
+            if (content != null)
+            {
+                b.FileBytes = content.FileBytes ?? Array.Empty<byte>();
+                b.Pages = content.Pages ?? new List<string>();
+                b.TableOfContents = content.TableOfContents ?? new List<TocItem>();
+                if (b.TotalPages <= 0)
+                {
+                    b.TotalPages = content.TotalPages > 0 ? content.TotalPages : Math.Max(1, b.Pages.Count);
+                }
+
+                DataStoreBackfillHelper.BackfillBookIfNeeded(b, contentDb);
+            }
+        });
     }
 
     /// <summary>
@@ -103,123 +206,20 @@ public class JsonDataStore : IDataStore
     }
 
     /// <summary>
-    /// Ensures the SQLite database schema is created and applies necessary column alterations.
-    /// </summary>
-    private static async Task EnsureSchemaAsync(EbookDbContext db)
-    {
-        await db.Database.EnsureCreatedAsync();
-
-        string[] alterQueries =
-        [
-            "ALTER TABLE Books ADD COLUMN Author TEXT NOT NULL DEFAULT '';",
-            "ALTER TABLE Books ADD COLUMN ZoomLevel INTEGER NOT NULL DEFAULT 100;",
-            "ALTER TABLE Books ADD COLUMN TableOfContents TEXT NOT NULL DEFAULT '[]';"
-        ];
-
-        // Safely execute idempotent ALTER TABLE statements
-        foreach (var sql in alterQueries)
-        {
-            try { await db.Database.ExecuteSqlRawAsync(sql); } catch { /* Column already exists */ }
-        }
-    }
-
-    /// <summary>
-    /// Persists current in-memory snapshot state into SQLite inside an atomic transaction.
+    /// Persists current in-memory snapshot state into SQLite inside an atomic transaction using differential sync.
     /// </summary>
     private async Task PersistAsync()
     {
         EnsureDirectoryExists();
 
         await using var db = CreateDbContext();
-        await EnsureSchemaAsync(db);
-
         await using var tx = await db.Database.BeginTransactionAsync();
 
-        await SyncUsersAndSessionsAsync(db);
-        await SyncBooksAsync(db);
-        await SyncBookmarksAsync(db);
+        await _syncHelper.SyncUsersAndSessionsAsync(_snapshot, db);
+        await _syncHelper.SyncBooksAsync(_snapshot, db);
+        await _syncHelper.SyncBookmarksAsync(_snapshot, db);
 
         await db.SaveChangesAsync();
         await tx.CommitAsync();
-    }
-
-    /// <summary>
-    /// Synchronizes users and session tokens from snapshot to the database.
-    /// </summary>
-    private async Task SyncUsersAndSessionsAsync(EbookDbContext db)
-    {
-        await db.Users.ExecuteDeleteAsync();
-        await db.Sessions.ExecuteDeleteAsync();
-        await db.Users.AddRangeAsync(_snapshot.Users);
-        await db.Sessions.AddRangeAsync(_snapshot.Sessions);
-    }
-
-    /// <summary>
-    /// Synchronizes books collection, updating reading progress and inserting new books.
-    /// </summary>
-    private async Task SyncBooksAsync(EbookDbContext db)
-    {
-        var existingBookIds = (await db.Books.Select(b => b.Id).ToListAsync()).ToHashSet();
-        var snapshotBookIds = _snapshot.Books.Select(b => b.Id).ToHashSet();
-
-        // Remove books deleted from snapshot
-        await db.Books.Where(b => !snapshotBookIds.Contains(b.Id)).ExecuteDeleteAsync();
-
-        foreach (var book in _snapshot.Books)
-        {
-            if (!existingBookIds.Contains(book.Id))
-            {
-                // Insert new book entity
-                db.Books.Add(new Book
-                {
-                    Id = book.Id,
-                    UserId = book.UserId,
-                    Title = book.Title,
-                    Author = book.Author,
-                    FileName = book.FileName,
-                    Format = book.Format,
-                    ContentHash = book.ContentHash,
-                    FileSizeBytes = book.FileSizeBytes,
-                    FileBytes = book.FileBytes,
-                    Pages = new List<string>(book.Pages),
-                    CurrentPage = book.CurrentPage,
-                    ZoomLevel = book.ZoomLevel <= 0 ? 100 : book.ZoomLevel,
-                    TableOfContents = book.TableOfContents ?? new List<TocItem>(),
-                    LastPositionUpdatedAtUtc = book.LastPositionUpdatedAtUtc,
-                    UploadedAtUtc = book.UploadedAtUtc,
-                    Bookmarks = new List<Bookmark>()
-                });
-            }
-            else
-            {
-                // Update reading position and zoom level on existing book
-                await db.Books
-                    .Where(b => b.Id == book.Id)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(b => b.CurrentPage, book.CurrentPage)
-                        .SetProperty(b => b.LastPositionUpdatedAtUtc, book.LastPositionUpdatedAtUtc)
-                        .SetProperty(b => b.ZoomLevel, book.ZoomLevel <= 0 ? 100 : book.ZoomLevel));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Synchronizes all bookmarks across all books.
-    /// </summary>
-    private async Task SyncBookmarksAsync(EbookDbContext db)
-    {
-        await db.Bookmarks.ExecuteDeleteAsync();
-        var allBookmarks = _snapshot.Books
-            .SelectMany(b => b.Bookmarks)
-            .Select(bm => new Bookmark
-            {
-                Id = bm.Id,
-                BookId = bm.BookId,
-                Name = bm.Name,
-                PageNumber = bm.PageNumber,
-                CreatedAtUtc = bm.CreatedAtUtc
-            })
-            .ToList();
-        await db.Bookmarks.AddRangeAsync(allBookmarks);
     }
 }

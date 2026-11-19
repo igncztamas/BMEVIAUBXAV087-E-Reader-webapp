@@ -5,9 +5,9 @@
 @inject EbookApiClient ApiClient
 @inject NavigationManager Navigation
 
-<PageTitle>My Library – E-book Reader</PageTitle>
+<PageTitle>@(Session.IsAuthenticated ? "My Library – E-book Reader" : "Welcome – E-book Reader")</PageTitle>
 
-@* Render library only when the user is authenticated *@
+@* Render library when authenticated; otherwise render public welcome card for visitors on "/" *@
 @if (Session.IsAuthenticated)
 {
     var filtered = FilteredBooks;
@@ -62,6 +62,22 @@
                        OnSuccessMessage="msg => _successMessage = msg" />
     </div>
 }
+else
+{
+    @* Public welcome landing card for unauthenticated visitors *@
+    <div class="auth-page">
+        <div class="card auth-card" style="max-width: 500px; text-align: center;">
+            <h1>Welcome to E-book Reader</h1>
+            <p style="color: var(--muted); margin: 0.75rem 0 1.5rem;">
+                Upload, manage, and read your personal PDF and EPUB library with automatic reading progress and bookmarks.
+            </p>
+            <div style="display: flex; gap: 0.75rem; justify-content: center;">
+                <a class="btn btn-primary" href="/login" style="min-width: 130px; color: #ffffff; text-decoration: none;">Login</a>
+                <a class="btn btn-outline" href="/register" style="min-width: 130px; color: var(--text); text-decoration: none;">Register</a>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private List<BookSummaryItemDto> _books = new();
@@ -100,22 +116,27 @@
     }
 
     /// <summary>
-    /// Validates authentication status on load and retrieves the user's book list.
+    /// Validates authentication status on load, loading books for authenticated users or redirecting /library visits.
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
-        Session.SetHeaderTitle("My Library");
         Session.OnChange += HandleSessionChanged;
         await Session.EnsureInitializedAsync();
 
-        // Redirect to login if user is not authenticated
-        if (!Session.IsAuthenticated)
+        if (Session.IsAuthenticated)
         {
-            Navigation.NavigateTo("/login");
-            return;
+            Session.SetHeaderTitle("My Library");
+            await LoadBooksAsync();
         }
-
-        await LoadBooksAsync();
+        else
+        {
+            Session.SetHeaderTitle("E-book Reader");
+            _books.Clear();
+            if (Navigation.Uri.EndsWith("/library", StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo("/login");
+            }
+        }
     }
 
     /// <summary>
@@ -125,12 +146,17 @@
     {
         if (Session.IsAuthenticated)
         {
+            Session.SetHeaderTitle("My Library");
             await LoadBooksAsync();
         }
         else
         {
+            Session.SetHeaderTitle("E-book Reader");
             _books.Clear();
-            Navigation.NavigateTo("/login");
+            if (Navigation.Uri.EndsWith("/library", StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo("/login");
+            }
         }
         await InvokeAsync(StateHasChanged);
     }

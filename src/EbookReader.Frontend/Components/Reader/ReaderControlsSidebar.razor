@@ -198,11 +198,13 @@
     }
 
     /// <summary>
-    /// Invokes the page jump callback using the value in the input field.
+    /// Invokes the page jump callback using the value in the input field,
+    /// then immediately resets the input field to the clamped <see cref="CurrentPage"/>.
     /// </summary>
     private async Task HandleJump()
     {
         await OnJumpToPage.InvokeAsync(_jumpInput);
+        _jumpInput = CurrentPage;
     }
 
     /// <summary>
