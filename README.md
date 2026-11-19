@@ -167,7 +167,7 @@ Passed!  - Failed: 0, Passed: 1, Skipped: 0, Total: 1 (Full suite: 20/20 Passed)
 
 ## 6. Chronological Summary of Development & Modifications
 
-Below is a concise summary of the iterative feature additions, refinements, and architectural improvements made from the initial version to the final application (excluding unrelated environment/IDE questions):
+Below is a concise summary of the iterative feature additions, refinements, and architectural improvements made from the initial version to the final application:
 
 1. **Repository & Solution Restructure**:
    - Reorganized the project into standard `/src` (`EbookReader.Backend`, `EbookReader.Frontend`) and `/tests` (`EbookReader.Tests`) directories under [`EbookReader.slnx`](EbookReader.slnx) and added [`run.sh`](run.sh) so the entire application starts with a single command.
