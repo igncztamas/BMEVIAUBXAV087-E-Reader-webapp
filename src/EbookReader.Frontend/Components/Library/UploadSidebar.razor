@@ -2,17 +2,24 @@
 @using EbookReader.Frontend.Services
 @inject EbookApiClient ApiClient
 
+@* Right sidebar hosting the e-book file upload form *@
 <aside class="right-sidebar">
     <div class="card" style="margin-bottom: 0;">
         <h2 style="margin-top: 0; font-size: 1.15rem;">Upload New E-book (PDF / EPUB)</h2>
+
+        @* Title override input (active only for single-file uploads) *@
         <div class="form-group">
             <label for="book-title">Book Title (optional)</label>
             <input id="book-title" class="form-control" @bind="_customTitle" disabled="@(_selectedFiles.Count > 1)" />
         </div>
+
+        @* Multi-file picker accepting PDF and EPUB formats *@
         <div class="form-group">
             <label for="book-file">Select Files (.pdf, .epub – max. 10 MB each)</label>
             <InputFile id="book-file" OnChange="HandleFileSelectedAsync" class="form-control" multiple />
         </div>
+
+        @* Upload submission button *@
         <button class="btn btn-primary" style="width: 100%;" @onclick="HandleUploadSelectedFilesAsync" disabled="@(_selectedFiles.Count == 0 || _isBusy)">
             @(_isBusy ? "Uploading..." : "Upload")
         </button>
@@ -20,12 +27,21 @@
 </aside>
 
 @code {
+    /// <summary>
+    /// Callback triggered after one or more books are successfully uploaded to refresh library view.
+    /// </summary>
     [Parameter]
     public EventCallback OnBooksChanged { get; set; }
 
+    /// <summary>
+    /// Callback delivering error alerts to the parent page.
+    /// </summary>
     [Parameter]
     public EventCallback<string?> OnErrorMessage { get; set; }
 
+    /// <summary>
+    /// Callback delivering success alerts to the parent page.
+    /// </summary>
     [Parameter]
     public EventCallback<string?> OnSuccessMessage { get; set; }
 
@@ -33,6 +49,9 @@
     private readonly List<(string Name, byte[] Bytes)> _selectedFiles = new();
     private bool _isBusy;
 
+    /// <summary>
+    /// Reads selected files from the browser file picker into byte arrays.
+    /// </summary>
     private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
     {
         _selectedFiles.Clear();
@@ -43,6 +62,7 @@
         IReadOnlyList<IBrowserFile> files;
         try
         {
+            // Allow batch selection up to 50 files
             files = e.GetMultipleFiles(maximumFileCount: 50);
         }
         catch (Exception ex)
@@ -55,6 +75,7 @@
         {
             try
             {
+                // Read file stream up to 12 MB memory threshold
                 using var stream = file.OpenReadStream(maxAllowedSize: 12 * 1024 * 1024);
                 using var ms = new MemoryStream();
                 await stream.CopyToAsync(ms);
@@ -66,6 +87,7 @@
             }
         }
 
+        // Multiple files cannot share a single custom title
         if (_selectedFiles.Count > 1)
         {
             _customTitle = null;
@@ -77,6 +99,9 @@
         }
     }
 
+    /// <summary>
+    /// Sequentially uploads all chosen files to the backend and reports outcomes.
+    /// </summary>
     private async Task HandleUploadSelectedFilesAsync()
     {
         if (_selectedFiles.Count == 0)
@@ -95,6 +120,7 @@
 
         try
         {
+            // Apply custom title only when exactly one file was uploaded
             var singleCustomTitle = _selectedFiles.Count == 1 ? _customTitle : null;
 
             foreach (var item in _selectedFiles)
@@ -118,6 +144,7 @@
                 }
             }
 
+            // Report single vs batch success message
             if (uploadedTitles.Count == 1 && lastUploadedBook is not null)
             {
                 await OnSuccessMessage.InvokeAsync($"Successfully uploaded: '{lastUploadedBook.Title}' ({lastUploadedBook.Format}, {lastUploadedBook.TotalPages} pages).");
@@ -132,6 +159,7 @@
                 await OnErrorMessage.InvokeAsync(string.Join(" | ", errors));
             }
 
+            // Reset upload form state and notify parent
             _selectedFiles.Clear();
             _customTitle = null;
             await OnBooksChanged.InvokeAsync();

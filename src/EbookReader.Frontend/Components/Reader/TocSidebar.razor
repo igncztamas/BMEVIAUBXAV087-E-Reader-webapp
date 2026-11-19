@@ -1,15 +1,19 @@
 @using EbookReader.Frontend.Models
 
+@* Collapsible left sidebar displaying hierarchical Table of Contents *@
 <aside class="left-sidebar">
+    @* Header with collapse trigger button *@
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <span style="font-weight: 700; font-size: 0.95rem;">📑 Table of Contents</span>
         <button class="btn btn-outline btn-sm" title="Collapse Table of Contents" @onclick="OnCollapse">◀</button>
     </div>
 
+    @* Empty state when document does not contain TOC outline metadata *@
     @if (TableOfContents is null || TableOfContents.Count == 0)
     {
         <p style="font-size: 0.88rem; color: var(--muted); margin: 0;">No table of contents available for this document.</p>
     }
+    @* Hierarchical TOC items with active section highlighting *@
     else
     {
         var activeItem = TableOfContents.Where(t => t.PageNumber <= CurrentPage).LastOrDefault();
@@ -31,15 +35,27 @@
 </aside>
 
 @code {
+    /// <summary>
+    /// Gets or sets the list of TOC items parsed from the e-book.
+    /// </summary>
     [Parameter]
     public List<TocItemDto>? TableOfContents { get; set; }
 
+    /// <summary>
+    /// Gets or sets the currently open page number used to highlight active section.
+    /// </summary>
     [Parameter]
     public int CurrentPage { get; set; }
 
+    /// <summary>
+    /// Callback invoked when the user clicks the collapse button.
+    /// </summary>
     [Parameter]
     public EventCallback OnCollapse { get; set; }
 
+    /// <summary>
+    /// Callback invoked when the user selects a TOC item to navigate to.
+    /// </summary>
     [Parameter]
     public EventCallback<int> OnNavigateToPage { get; set; }
 }

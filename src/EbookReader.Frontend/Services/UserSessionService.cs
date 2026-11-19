@@ -3,6 +3,10 @@ using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 
 namespace EbookReader.Frontend.Services;
 
+/// <summary>
+/// Manages user authentication, theme state, and top navbar headers,
+/// persisting critical session credentials into browser ProtectedLocalStorage.
+/// </summary>
 public class UserSessionService : IUserSessionService
 {
     private const string StorageKey = "ebook_auth_session";
@@ -11,20 +15,35 @@ public class UserSessionService : IUserSessionService
     private bool _initialized;
     private Task? _initTask;
 
+    /// <inheritdoc/>
     public string? Token { get; private set; }
+
+    /// <inheritdoc/>
     public UserInfoDto? CurrentUser { get; private set; }
+
+    /// <inheritdoc/>
     public bool IsAuthenticated => !string.IsNullOrWhiteSpace(Token) && CurrentUser is not null;
+
+    /// <inheritdoc/>
     public string HeaderTitle { get; private set; } = "My Library";
+
+    /// <inheritdoc/>
     public bool IsDarkMode { get; private set; }
 
+    /// <inheritdoc/>
     public event Action? OnChange;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="UserSessionService"/> using the specified protected browser storage.
+    /// </summary>
+    /// <param name="storage">The protected local storage provider.</param>
     public UserSessionService(ProtectedLocalStorage storage)
     {
         ArgumentNullException.ThrowIfNull(storage);
         _storage = storage;
     }
 
+    /// <inheritdoc/>
     public void SetHeaderTitle(string title)
     {
         if (HeaderTitle != title)
@@ -34,18 +53,23 @@ public class UserSessionService : IUserSessionService
         }
     }
 
+    /// <inheritdoc/>
     public void SetDarkMode(bool isDark)
     {
         if (IsDarkMode != isDark)
         {
             IsDarkMode = isDark;
             OnChange?.Invoke();
+
+            // Persist theme choice asynchronously without blocking UI render
             _ = SaveDarkModeAsync(isDark);
         }
     }
 
+    /// <inheritdoc/>
     public void ToggleDarkMode() => SetDarkMode(!IsDarkMode);
 
+    /// <inheritdoc/>
     public Task EnsureInitializedAsync()
     {
         if (_initialized)
@@ -53,6 +77,7 @@ public class UserSessionService : IUserSessionService
             return Task.CompletedTask;
         }
 
+        // Reuse in-flight initialization task to avoid concurrent storage reads
         return _initTask ??= InitializeCoreAsync();
     }
 
@@ -60,6 +85,7 @@ public class UserSessionService : IUserSessionService
     {
         try
         {
+            // Restore authentication session from protected storage
             var result = await _storage.GetAsync<StoredUserSession>(StorageKey);
             if (!_initialized && result.Success && result.Value is not null && !string.IsNullOrWhiteSpace(result.Value.Token) && result.Value.User is not null)
             {
@@ -70,6 +96,7 @@ public class UserSessionService : IUserSessionService
 
             try
             {
+                // Restore dark mode preference
                 var darkResult = await _storage.GetAsync<bool>(DarkModeStorageKey);
                 if (darkResult.Success)
                 {
@@ -79,11 +106,12 @@ public class UserSessionService : IUserSessionService
             }
             catch
             {
+                // Fall back to default light mode if reading theme setting fails
             }
         }
         catch
         {
-            // JS interop may fail if called outside an interactive context or during disconnect
+            // Storage access can fail during prerendering or if user blocks cookies/local storage
         }
         finally
         {
@@ -91,6 +119,7 @@ public class UserSessionService : IUserSessionService
         }
     }
 
+    /// <inheritdoc/>
     public void SetSession(string token, UserInfoDto user)
     {
         Token = token;
@@ -98,9 +127,12 @@ public class UserSessionService : IUserSessionService
         _initialized = true;
         _initTask = Task.CompletedTask;
         OnChange?.Invoke();
+
+        // Persist session into encrypted protected browser storage
         _ = SaveStorageAsync(token, user);
     }
 
+    /// <inheritdoc/>
     public void ClearSession()
     {
         Token = null;
@@ -108,6 +140,8 @@ public class UserSessionService : IUserSessionService
         _initialized = true;
         _initTask = Task.CompletedTask;
         OnChange?.Invoke();
+
+        // Remove session from browser storage
         _ = DeleteStorageAsync();
     }
 
@@ -119,6 +153,7 @@ public class UserSessionService : IUserSessionService
         }
         catch
         {
+            // Ignore storage errors on disconnect
         }
     }
 
@@ -130,6 +165,7 @@ public class UserSessionService : IUserSessionService
         }
         catch
         {
+            // Ignore storage errors on disconnect
         }
     }
 
@@ -141,6 +177,7 @@ public class UserSessionService : IUserSessionService
         }
         catch
         {
+            // Ignore storage errors on disconnect
         }
     }
 }

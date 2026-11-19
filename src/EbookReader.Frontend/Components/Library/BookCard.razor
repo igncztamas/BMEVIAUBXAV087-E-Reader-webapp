@@ -1,14 +1,20 @@
 @using EbookReader.Frontend.Models
 
+@* Individual book card item within library grid *@
 <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between;">
     <div>
+        @* Title and format badge header *@
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
             <h3 style="margin: 0 0 0.35rem 0; font-size: 1.15rem;">@Book.Title</h3>
             <span class="badge">@Book.Format</span>
         </div>
+
+        @* Author / File name subtitle *@
         <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--muted);">
             @(string.IsNullOrWhiteSpace(Book.Author) ? Book.FileName : Book.Author)
         </p>
+
+        @* Reading progress and bookmark count *@
         <p style="margin: 0 0 0.35rem 0; font-size: 0.92rem;">
             Reading position: <strong>Page @Book.CurrentPage / @Book.TotalPages</strong>
         </p>
@@ -17,6 +23,7 @@
         </p>
     </div>
 
+    @* Action buttons: Open reader and Delete book *@
     <div style="display: flex; gap: 0.5rem;">
         @if (OnOpen.HasDelegate)
         {
@@ -37,12 +44,21 @@
 </div>
 
 @code {
+    /// <summary>
+    /// Gets or sets the book summary data to render in this card.
+    /// </summary>
     [Parameter, EditorRequired]
     public BookSummaryItemDto Book { get; set; } = default!;
 
+    /// <summary>
+    /// Optional callback invoked when the user clicks the Open button.
+    /// </summary>
     [Parameter]
     public EventCallback<BookSummaryItemDto> OnOpen { get; set; }
 
+    /// <summary>
+    /// Callback invoked when the user confirms book deletion.
+    /// </summary>
     [Parameter]
     public EventCallback<Guid> OnDelete { get; set; }
 }

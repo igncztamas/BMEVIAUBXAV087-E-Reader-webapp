@@ -6,6 +6,7 @@
 
 <PageTitle>Reader – E-book Reader</PageTitle>
 
+@* Unauthenticated access guard *@
 @if (!Session.IsAuthenticated)
 {
     <div style="padding: 2rem; width: 100%;">
@@ -14,12 +15,14 @@
         </div>
     </div>
 }
+@* Book loading indicator *@
 else if (_isLoading)
 {
     <div style="padding: 2rem; width: 100%;">
         <div class="card">Loading book...</div>
     </div>
 }
+@* Book load failure error display *@
 else if (_book is null)
 {
     <div style="padding: 2rem; width: 100%;">
@@ -29,9 +32,11 @@ else if (_book is null)
         <a class="btn btn-outline" href="/">← Back to Library</a>
     </div>
 }
+@* Full reader workspace *@
 else
 {
     <div class="workspace-split">
+        @* Left sidebar: collapsible Table of Contents *@
         @if (_showToc)
         {
             <TocSidebar TableOfContents="_book.TableOfContents"
@@ -40,6 +45,7 @@ else
                         OnNavigateToPage="JumpToBackendPageAsync" />
         }
 
+        @* Center reading stage: render target and TOC expand button *@
         <div class="reader-main-stage" style="position: relative;">
             @if (!_showToc)
             {
@@ -52,6 +58,7 @@ else
             <div id="ebook-render-target" class="reader-page-box"></div>
         </div>
 
+        @* Right sidebar: navigation controls, zoom adjuster, and bookmarks list *@
         <ReaderControlsSidebar Format="@_book.Format"
                                CurrentPage="_currentPage"
                                TotalPages="_totalPages"
@@ -73,9 +80,15 @@ else
 }
 
 @code {
+    /// <summary>
+    /// Gets or sets the unique identifier of the book loaded into the reader.
+    /// </summary>
     [Parameter]
     public Guid BookId { get; set; }
 
+    /// <summary>
+    /// DTO capturing sub-page state returned by the JS multi-column renderer.
+    /// </summary>
     private sealed record RenderPageResult(int SubPage, int SubPageCount);
 
     private BookDetailItemDto? _book;
@@ -93,6 +106,9 @@ else
     private int _zoomLevel = 100;
     private bool _showToc = true;
 
+    /// <summary>
+    /// Validates authentication and loads book metadata and bookmarks upon parameter updates.
+    /// </summary>
     protected override async Task OnParametersSetAsync()
     {
         await Session.EnsureInitializedAsync();
@@ -105,6 +121,9 @@ else
         await LoadBookAsync();
     }
 
+    /// <summary>
+    /// Dispatches page rendering requests to JS interop after Blazor DOM updates.
+    /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_needsJsRender && _book is not null)
@@ -125,6 +144,7 @@ else
                     zoomLevel = _zoomLevel
                 });
 
+                // Update sub-page indicators if the column count or position changed
                 if (renderResult is not null && (_epubSubPage != renderResult.SubPage || _epubSubPageCount != renderResult.SubPageCount))
                 {
                     _epubSubPage = renderResult.SubPage;
@@ -134,11 +154,14 @@ else
             }
             catch
             {
-                // Fallback HTML is already in DOM
+                // Fallback HTML remains in the DOM if JS rendering encounters errors
             }
         }
     }
 
+    /// <summary>
+    /// Retrieves full book details, saved progress, and bookmarks from the backend API.
+    /// </summary>
     private async Task LoadBookAsync()
     {
         _isLoading = true;
@@ -168,8 +191,12 @@ else
         _isLoading = false;
     }
 
+    /// <summary>
+    /// Steps backward one screen: first decrements EPUB column sub-page, then navigates to previous chapter.
+    /// </summary>
     private async Task PreviousPageAsync()
     {
+        // Step back through column sub-pages within the current EPUB chapter
         if (_book?.Format == "EPUB" && _epubSubPage > 1)
         {
             var res = await JS.InvokeAsync<RenderPageResult?>("ebookRenderer.setEpubSubPage", _epubSubPage - 1);
@@ -183,6 +210,7 @@ else
             return;
         }
 
+        // Navigate to the preceding backend page, requesting the last sub-page (-1)
         if (_currentPage > 1)
         {
             _requestedSubPage = -1;
@@ -190,8 +218,12 @@ else
         }
     }
 
+    /// <summary>
+    /// Steps forward one screen: first increments EPUB column sub-page, then navigates to next chapter.
+    /// </summary>
     private async Task NextPageAsync()
     {
+        // Step forward through column sub-pages within the current EPUB chapter
         if (_book?.Format == "EPUB" && _epubSubPage < _epubSubPageCount)
         {
             var res = await JS.InvokeAsync<RenderPageResult?>("ebookRenderer.setEpubSubPage", _epubSubPage + 1);
@@ -205,6 +237,7 @@ else
             return;
         }
 
+        // Navigate to the following backend page, requesting the first sub-page (1)
         if (_currentPage < _totalPages)
         {
             _requestedSubPage = 1;
@@ -212,12 +245,19 @@ else
         }
     }
 
+    /// <summary>
+    /// Navigates directly to a target chapter or page, resetting the sub-page index to 1.
+    /// </summary>
+    /// <param name="targetPage">The target page number.</param>
     private Task JumpToBackendPageAsync(int targetPage)
     {
         _requestedSubPage = 1;
         return NavigateToPageAsync(targetPage);
     }
 
+    /// <summary>
+    /// Toggles visibility of the Table of Contents sidebar and requests JS re-render to refit columns.
+    /// </summary>
     private void ToggleToc()
     {
         _showToc = !_showToc;
@@ -225,6 +265,10 @@ else
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Adjusts the zoom level percentage and persists the update to the backend.
+    /// </summary>
+    /// <param name="delta">The zoom percentage increment or decrement.</param>
     private async Task ChangeZoomAsync(int delta)
     {
         var newZoom = Math.Clamp(_zoomLevel + delta, 50, 250);
@@ -237,6 +281,9 @@ else
         }
     }
 
+    /// <summary>
+    /// Resets the zoom level to 100% and persists the default setting.
+    /// </summary>
     private async Task ResetZoomAsync()
     {
         if (_zoomLevel != 100)
@@ -248,6 +295,10 @@ else
         }
     }
 
+    /// <summary>
+    /// Fetches page content from the backend and updates the reading position.
+    /// </summary>
+    /// <param name="targetPage">Destination page number.</param>
     private async Task NavigateToPageAsync(int targetPage)
     {
         _errorMessage = null;
@@ -264,12 +315,17 @@ else
         _totalPages = pageResult.Data.TotalPages;
         _currentPageContent = pageResult.Data.Content;
 
+        // Persist reading position to backend
         await ApiClient.UpdateProgressAsync(BookId, _currentPage, DateTimeOffset.UtcNow, _zoomLevel);
 
         _needsJsRender = true;
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Creates a bookmark on the currently active page.
+    /// </summary>
+    /// <param name="bookmarkName">User-provided bookmark label.</param>
     private async Task HandleCreateBookmarkAsync(string bookmarkName)
     {
         _errorMessage = null;
@@ -292,6 +348,10 @@ else
         }
     }
 
+    /// <summary>
+    /// Removes a bookmark by its unique identifier.
+    /// </summary>
+    /// <param name="bookmarkId">Unique bookmark identifier.</param>
     private async Task HandleDeleteBookmarkAsync(Guid bookmarkId)
     {
         _errorMessage = null;

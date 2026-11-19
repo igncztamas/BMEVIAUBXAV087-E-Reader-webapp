@@ -16,8 +16,14 @@ internal sealed class TestUserSessionService : IUserSessionService
 
     public event Action? OnChange;
 
+    /// <summary>
+    /// Completes immediately since in-memory test sessions do not restore from browser storage.
+    /// </summary>
     public Task EnsureInitializedAsync() => Task.CompletedTask;
 
+    /// <summary>
+    /// Stores the authenticated session token and user details and notifies subscribers.
+    /// </summary>
     public void SetSession(string token, UserInfoDto user)
     {
         Token = token;
@@ -25,6 +31,9 @@ internal sealed class TestUserSessionService : IUserSessionService
         OnChange?.Invoke();
     }
 
+    /// <summary>
+    /// Clears the current session credentials and notifies subscribers.
+    /// </summary>
     public void ClearSession()
     {
         Token = null;
@@ -32,18 +41,27 @@ internal sealed class TestUserSessionService : IUserSessionService
         OnChange?.Invoke();
     }
 
+    /// <summary>
+    /// Updates the displayed header title and notifies subscribers.
+    /// </summary>
     public void SetHeaderTitle(string title)
     {
         HeaderTitle = title;
         OnChange?.Invoke();
     }
 
+    /// <summary>
+    /// Explicitly sets dark mode state and notifies subscribers.
+    /// </summary>
     public void SetDarkMode(bool isDark)
     {
         IsDarkMode = isDark;
         OnChange?.Invoke();
     }
 
+    /// <summary>
+    /// Toggles dark mode state and notifies subscribers.
+    /// </summary>
     public void ToggleDarkMode()
     {
         IsDarkMode = !IsDarkMode;

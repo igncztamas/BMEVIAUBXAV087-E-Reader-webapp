@@ -1,11 +1,14 @@
 @using EbookReader.Frontend.Models
 
+@* Right sidebar hosting page navigation, zoom slider, and bookmark tools *@
 <aside class="right-sidebar">
+    @* Return to library link and format badge *@
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <a class="btn btn-outline btn-sm" href="/">← Back to Library</a>
         <span class="badge">@Format</span>
     </div>
 
+    @* Dynamic status and error alerts *@
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
         <div class="alert alert-danger" role="alert" style="margin-bottom: 0;">@ErrorMessage</div>
@@ -16,6 +19,7 @@
         <div class="alert alert-success" role="status" style="margin-bottom: 0;">@StatusMessage</div>
     }
 
+    @* Navigation card with Prev/Next buttons and page jumping *@
     <div class="card" style="margin-bottom: 0;">
         <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
             Page @CurrentPage / @TotalPages
@@ -41,6 +45,7 @@
         </div>
     </div>
 
+    @* Zoom and font-size controls card *@
     <div class="card" style="margin-bottom: 0;">
         <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.5rem;">
             @(Format == "EPUB" ? $"Font Size: {ZoomLevel}%" : $"Zoom: {ZoomLevel}%")
@@ -52,6 +57,7 @@
         </div>
     </div>
 
+    @* Bookmarks creation and list management card *@
     <div class="card" style="margin-bottom: 0;">
         <h2 style="margin-top: 0; font-size: 1.15rem;">🔖 Bookmarks (@Bookmarks.Count)</h2>
         <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0;">
@@ -95,38 +101,113 @@
 </aside>
 
 @code {
+    /// <summary>
+    /// Gets or sets the document format ("PDF" or "EPUB").
+    /// </summary>
     [Parameter] public string Format { get; set; } = "PDF";
+
+    /// <summary>
+    /// Gets or sets the active page or chapter index.
+    /// </summary>
     [Parameter] public int CurrentPage { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the total page or chapter count.
+    /// </summary>
     [Parameter] public int TotalPages { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the current EPUB column sub-page index.
+    /// </summary>
     [Parameter] public int SubPage { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the total EPUB column sub-page count.
+    /// </summary>
     [Parameter] public int SubPageCount { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the current zoom percentage.
+    /// </summary>
     [Parameter] public int ZoomLevel { get; set; } = 100;
+
+    /// <summary>
+    /// Gets or sets the list of saved bookmarks for this book.
+    /// </summary>
     [Parameter] public List<BookmarkItemDto> Bookmarks { get; set; } = new();
+
+    /// <summary>
+    /// Optional error alert text.
+    /// </summary>
     [Parameter] public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Optional success or status alert text.
+    /// </summary>
     [Parameter] public string? StatusMessage { get; set; }
 
+    /// <summary>
+    /// Callback triggered when the Prev button is pressed.
+    /// </summary>
     [Parameter] public EventCallback OnPreviousPage { get; set; }
+
+    /// <summary>
+    /// Callback triggered when the Next button is pressed.
+    /// </summary>
     [Parameter] public EventCallback OnNextPage { get; set; }
+
+    /// <summary>
+    /// Callback triggered when the Go jump button is pressed.
+    /// </summary>
     [Parameter] public EventCallback<int> OnJumpToPage { get; set; }
+
+    /// <summary>
+    /// Callback triggered when zoom +/- buttons are pressed.
+    /// </summary>
     [Parameter] public EventCallback<int> OnChangeZoom { get; set; }
+
+    /// <summary>
+    /// Callback triggered when zoom 100% reset button is pressed.
+    /// </summary>
     [Parameter] public EventCallback OnResetZoom { get; set; }
+
+    /// <summary>
+    /// Callback triggered to create a bookmark with the given label.
+    /// </summary>
     [Parameter] public EventCallback<string> OnCreateBookmark { get; set; }
+
+    /// <summary>
+    /// Callback triggered to delete a bookmark by its ID.
+    /// </summary>
     [Parameter] public EventCallback<Guid> OnDeleteBookmark { get; set; }
+
+    /// <summary>
+    /// Callback triggered when a bookmark list item is clicked to jump to its page.
+    /// </summary>
     [Parameter] public EventCallback<int> OnNavigateToPage { get; set; }
 
     private int _jumpInput = 1;
     private string _newBookmarkName = string.Empty;
 
+    /// <summary>
+    /// Syncs jump input default value when CurrentPage changes.
+    /// </summary>
     protected override void OnParametersSet()
     {
         _jumpInput = CurrentPage;
     }
 
+    /// <summary>
+    /// Invokes the page jump callback using the value in the input field.
+    /// </summary>
     private async Task HandleJump()
     {
         await OnJumpToPage.InvokeAsync(_jumpInput);
     }
 
+    /// <summary>
+    /// Submits the new bookmark label and resets the input.
+    /// </summary>
     private async Task HandleCreateBookmark()
     {
         var name = _newBookmarkName;

@@ -6,10 +6,13 @@
 @inject IJSRuntime JS
 
 <div class="app-shell @(IsReaderPage ? "is-reader" : "")">
+    @* Auto-hide hover activation zone for reader mode navbar *@
     @if (IsReaderPage)
     {
         <div class="top-bar-hover-zone"></div>
     }
+
+    @* Global top navigation bar *@
     <header class="navbar">
         <a class="navbar-brand" href="/">@(Session.IsAuthenticated ? Session.HeaderTitle : "E-book Reader")</a>
         <nav class="navbar-links">
@@ -28,35 +31,56 @@
         </nav>
     </header>
 
+    @* Main body workspace stage *@
     <main class="app-main">
         @Body
     </main>
 </div>
 
 @code {
+    /// <summary>
+    /// Indicates whether the active route corresponds to the e-book reader page.
+    /// </summary>
     private bool IsReaderPage => Navigation.Uri.Contains("/reader/", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Initializes session event subscriptions and synchronizes client-side dark theme.
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
         Session.OnChange += StateHasChanged;
         Navigation.LocationChanged += HandleLocationChanged;
+
+        // Ensure session credentials are recovered from browser storage
         await Session.EnsureInitializedAsync();
         try
         {
             await JS.InvokeVoidAsync("ebookTheme.apply", Session.IsDarkMode);
         }
-        catch { }
+        catch
+        {
+            // Ignore JS interop failures during prerendering
+        }
     }
 
+    /// <summary>
+    /// Applies active theme styles to client DOM after interactive server rendering is established.
+    /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         try
         {
             await JS.InvokeVoidAsync("ebookTheme.apply", Session.IsDarkMode);
         }
-        catch { }
+        catch
+        {
+            // Ignore JS errors on disconnect
+        }
     }
 
+    /// <summary>
+    /// Toggles the dark mode setting and propagates the change to the DOM.
+    /// </summary>
     private async Task ToggleDarkModeAsync()
     {
         Session.ToggleDarkMode();
@@ -64,20 +88,32 @@
         {
             await JS.InvokeVoidAsync("ebookTheme.apply", Session.IsDarkMode);
         }
-        catch { }
+        catch
+        {
+            // Ignore JS interop errors
+        }
     }
 
+    /// <summary>
+    /// Triggers re-rendering on route changes to re-evaluate reader vs standard layout rules.
+    /// </summary>
     private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         InvokeAsync(StateHasChanged);
     }
 
+    /// <summary>
+    /// Performs user logout via API client and redirects to the login view.
+    /// </summary>
     private async Task HandleLogoutAsync()
     {
         await ApiClient.LogoutAsync();
         Navigation.NavigateTo("/login");
     }
 
+    /// <summary>
+    /// Cleans up event subscriptions to prevent memory leaks.
+    /// </summary>
     public void Dispose()
     {
         Session.OnChange -= StateHasChanged;

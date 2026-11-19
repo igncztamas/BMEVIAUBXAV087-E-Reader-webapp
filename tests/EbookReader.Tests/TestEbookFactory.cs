@@ -11,11 +11,19 @@ public static class TestEbookFactory
 {
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
+    /// <summary>
+    /// Builds a standard PDF 1.4 document containing one page per entry in <paramref name="pages"/> without embedded metadata.
+    /// </summary>
     public static byte[] CreateValidPdfBytes(params string[] pages)
         => CreateValidPdfBytesWithMetadata(null, null, pages);
 
+    /// <summary>
+    /// Builds a standard PDF 1.4 document with optional <c>/Info</c> metadata (<paramref name="title"/> and <paramref name="author"/>),
+    /// an embedded Helvetica font resource, and an accurate byte-offset <c>xref</c> table so <c>PdfPig</c> parses it natively.
+    /// </summary>
     public static byte[] CreateValidPdfBytesWithMetadata(string? title, string? author, params string[] pages)
     {
+        // Default to a single sample page if no page text was supplied.
         if (pages is null || pages.Length == 0)
         {
             pages = ["Page 1: Welcome to the E-book Reader!"];
@@ -32,17 +40,19 @@ public static class TestEbookFactory
 
         void WriteObject(int id, string body)
         {
+            // Record exact byte offset before emitting the object header for the xref table.
             offsets.Add(ms.Position);
             WriteAscii($"{id} 0 obj\n{body}\nendobj\n");
         }
 
+        // Write PDF header and core Catalog, Pages, and Font objects (IDs 1..3).
         WriteAscii("%PDF-1.4\n");
-
         var kidsRefs = string.Join(" ", Enumerable.Range(0, pages.Length).Select(i => $"{4 + i * 2} 0 R"));
         WriteObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
         WriteObject(2, $"<< /Type /Pages /Count {pages.Length} /Kids [{kidsRefs}] >>");
         WriteObject(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
 
+        // Emit alternating /Page and content stream objects for each requested page.
         for (int i = 0; i < pages.Length; i++)
         {
             int pageObjId = 4 + i * 2;
@@ -54,6 +64,7 @@ public static class TestEbookFactory
             WriteObject(contentObjId, $"<< /Length {streamLength} >>\nstream\n{streamContent}\nendstream");
         }
 
+        // Emit an optional /Info dictionary when metadata title or author is provided.
         string infoRef = string.Empty;
         if (!string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(author))
         {
@@ -71,6 +82,7 @@ public static class TestEbookFactory
             infoRef = $" /Info {infoObjId} 0 R";
         }
 
+        // Emit the cross-reference table and trailer pointing to Root (and Info when present).
         long xrefOffset = ms.Position;
         int totalObjects = offsets.Count + 1;
         WriteAscii($"xref\n0 {totalObjects}\n0000000000 65535 f \n");
@@ -83,15 +95,22 @@ public static class TestEbookFactory
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Builds a standard EPUB 3 archive with a title and one XHTML chapter per entry in <paramref name="chapters"/>.
+    /// </summary>
     public static byte[] CreateValidEpubBytes(string title, params string[] chapters)
         => CreateValidEpubBytesWithMetadata(title, null, null, chapters);
 
+    /// <summary>
+    /// Builds a standard EPUB 3 archive with optional <c>&lt;dc:title&gt;</c>, <c>&lt;dc:creator&gt;</c>, and custom navigation TOC titles.
+    /// </summary>
     public static byte[] CreateValidEpubBytesWithMetadata(
         string? title,
         string? author,
         string[]? tocTitles,
         params string[] chapters)
     {
+        // Default to a single sample chapter when none are provided.
         if (chapters is null || chapters.Length == 0)
         {
             chapters = ["Chapter 1: Introduction to EPUB reading."];
@@ -100,6 +119,7 @@ public static class TestEbookFactory
         using var ms = new MemoryStream();
         using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
+            // Write uncompressed mimetype first and container.xml per the OCF/EPUB specification.
             WriteEntry(archive, "mimetype", "application/epub+zip", Encoding.ASCII, CompressionLevel.NoCompression);
             WriteEntry(archive, "META-INF/container.xml", """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -116,6 +136,9 @@ public static class TestEbookFactory
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Creates a minimal ZIP archive containing a single entry (used to test invalid EPUB archives missing OPF/container files).
+    /// </summary>
     public static byte[] CreateZipBytes(string entryName, string content)
     {
         using var ms = new MemoryStream();
@@ -126,6 +149,9 @@ public static class TestEbookFactory
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Writes <c>OEBPS/content.opf</c>, <c>OEBPS/nav.xhtml</c>, and each chapter XHTML document into the EPUB archive.
+    /// </summary>
     private static void WriteEpubPackageAndContent(
         ZipArchive archive,
         string? title,
@@ -133,6 +159,7 @@ public static class TestEbookFactory
         string[]? tocTitles,
         string[] chapters)
     {
+        // Build OPF manifest, spine, and navigation list items for every chapter.
         var manifestItems = string.Join("\n    ", Enumerable.Range(1, chapters.Length)
             .Select(i => $"""<item id="ch{i}" href="chapter_{i:D2}.xhtml" media-type="application/xhtml+xml"/>"""));
         var spineItems = string.Join("\n    ", Enumerable.Range(1, chapters.Length)
@@ -144,6 +171,7 @@ public static class TestEbookFactory
                 return $"""<li><a href="chapter_{i:D2}.xhtml">{WebUtility.HtmlEncode(label)}</a></li>""";
             }));
 
+        // Include optional Dublin Core title and creator elements only when non-empty.
         var titleElement = string.IsNullOrWhiteSpace(title)
             ? string.Empty
             : $"\n    <dc:title>{WebUtility.HtmlEncode(title)}</dc:title>";
@@ -182,6 +210,7 @@ public static class TestEbookFactory
             </html>
             """, Utf8NoBom);
 
+        // Write one XHTML file per chapter matching the manifest hrefs.
         var pageTitle = string.IsNullOrWhiteSpace(title) ? "Book" : title;
         for (int i = 0; i < chapters.Length; i++)
         {
@@ -197,9 +226,15 @@ public static class TestEbookFactory
         }
     }
 
+    /// <summary>
+    /// Escapes backslashes and parentheses inside PDF literal string operands.
+    /// </summary>
     private static string EscapePdfText(string text)
         => text.Replace(@"\", @"\\").Replace("(", @"\(").Replace(")", @"\)");
 
+    /// <summary>
+    /// Creates and writes a single text entry into a <see cref="ZipArchive"/>.
+    /// </summary>
     private static void WriteEntry(
         ZipArchive archive,
         string entryName,

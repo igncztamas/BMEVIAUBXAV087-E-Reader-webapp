@@ -2,17 +2,26 @@ namespace EbookReader.Backend.Services;
 
 using EbookReader.Backend.Models;
 
+/// <summary>
+/// Service managing user library books, file uploads, reading progress tracking, and bookmarks.
+/// </summary>
 public class BookService : IBookService
 {
     private readonly IDataStore _dataStore;
     private readonly IEbookValidatorAndParser _validator;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="BookService"/>.
+    /// </summary>
+    /// <param name="dataStore">Data store for persisting books and progress.</param>
+    /// <param name="validator">Validator and parser for PDF and EPUB files.</param>
     public BookService(IDataStore dataStore, IEbookValidatorAndParser validator)
     {
         _dataStore = dataStore;
         _validator = validator;
     }
 
+    /// <inheritdoc/>
     public async Task<List<BookSummaryDto>> GetUserBooksAsync(Guid userId)
     {
         return await _dataStore.ReadAsync(db =>
@@ -23,12 +32,14 @@ public class BookService : IBookService
                 .ToList());
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<BookDetailDto>> UploadBookAsync(
         Guid userId,
         string fileName,
         byte[]? fileBytes,
         string? customTitle = null)
     {
+        // Validate file integrity, size, and parse pages/metadata
         var parseResult = _validator.ValidateAndParse(fileName, fileBytes);
         if (!parseResult.IsSuccess || parseResult.Data is null)
         {
@@ -43,6 +54,7 @@ public class BookService : IBookService
 
         return await _dataStore.WriteAsync(db =>
         {
+            // Duplicate detection: check filename or SHA-256 content hash in user's library
             var duplicate = db.Books.FirstOrDefault(b =>
                 b.UserId == userId &&
                 (b.FileName.Equals(cleanFileName, StringComparison.OrdinalIgnoreCase) ||
@@ -56,16 +68,19 @@ public class BookService : IBookService
                     $"This book ('{cleanFileName}') already exists in your library.");
             }
 
+            // Create domain entity and persist to library
             var book = CreateBookEntity(userId, cleanFileName, fileBytes!, customTitle, parsed);
             db.Books.Add(book);
             return ServiceResult<BookDetailDto>.Success(book.ToDetail(), 201);
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<BookDetailDto>> GetBookDetailAsync(Guid requestingUserId, Guid bookId)
     {
         return await _dataStore.ReadAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<BookDetailDto>(
                     db, bookId, requestingUserId, "You do not have permission to view another user's book.", out var book, out var failure))
             {
@@ -76,16 +91,19 @@ public class BookService : IBookService
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<BookPageDto>> GetBookPageAsync(Guid requestingUserId, Guid bookId, int requestedPageNumber)
     {
         return await _dataStore.ReadAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<BookPageDto>(
                     db, bookId, requestingUserId, "You do not have permission to read another user's book.", out var book, out var failure))
             {
                 return failure!;
             }
 
+            // Clamp requested page to valid range [1, TotalPages] without throwing an error
             int totalPages = Math.Max(1, book!.Pages.Count);
             int clampedPage = Math.Clamp(requestedPageNumber, 1, totalPages);
             return ServiceResult<BookPageDto>.Success(new BookPageDto(
@@ -93,21 +111,25 @@ public class BookService : IBookService
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<UpdateProgressResponse>> UpdateReadingProgressAsync(
         Guid requestingUserId, Guid bookId, int requestedPageNumber, DateTimeOffset? clientTimestampUtc = null, int? zoomLevel = null)
     {
         return await _dataStore.WriteAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<UpdateProgressResponse>(
                     db, bookId, requestingUserId, "You do not have permission to update another user's reading position.", out var book, out var failure))
             {
                 return failure!;
             }
 
+            // Clamp page to valid bounds
             int totalPages = Math.Max(1, book!.Pages.Count);
             int clampedPage = Math.Clamp(requestedPageNumber, 1, totalPages);
             var timestamp = clientTimestampUtc ?? DateTimeOffset.UtcNow;
 
+            // Last-Write-Wins concurrency: only apply update if client timestamp is >= stored timestamp
             bool shouldUpdate = timestamp >= book.LastPositionUpdatedAtUtc;
             if (shouldUpdate)
             {
@@ -124,6 +146,7 @@ public class BookService : IBookService
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<BookmarkDto>> AddBookmarkAsync(Guid requestingUserId, Guid bookId, string? name, int pageNumber)
     {
         var trimmedName = name?.Trim() ?? string.Empty;
@@ -134,15 +157,18 @@ public class BookService : IBookService
 
         return await _dataStore.WriteAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<BookmarkDto>(
                     db, bookId, requestingUserId, "You do not have permission to add a bookmark to another user's book.", out var book, out var failure))
             {
                 return failure!;
             }
 
+            // Clamp target page
             int totalPages = Math.Max(1, book!.Pages.Count);
             int clampedPage = Math.Clamp(pageNumber, 1, totalPages);
 
+            // Duplicate detection: prevent bookmarks on same page or with same name in this book
             var duplicate = book.Bookmarks.FirstOrDefault(bm =>
                 bm.Name.Equals(trimmedName, StringComparison.OrdinalIgnoreCase) || bm.PageNumber == clampedPage);
 
@@ -152,6 +178,7 @@ public class BookService : IBookService
                     409, EbookErrorCodes.DuplicateBookmark, $"A bookmark already exists on this page (Page {clampedPage}) or with this name ('{trimmedName}').");
             }
 
+            // Create bookmark entity
             var bookmark = new Bookmark { Id = Guid.NewGuid(), BookId = book.Id, Name = trimmedName, PageNumber = clampedPage, CreatedAtUtc = DateTimeOffset.UtcNow };
             book.Bookmarks.Add(bookmark);
 
@@ -159,16 +186,19 @@ public class BookService : IBookService
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<bool>> DeleteBookmarkAsync(Guid requestingUserId, Guid bookId, Guid bookmarkId)
     {
         return await _dataStore.WriteAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<bool>(
                     db, bookId, requestingUserId, "You do not have permission to delete this bookmark.", out var book, out var failure))
             {
                 return failure!;
             }
 
+            // Remove bookmark matching ID
             var removed = book!.Bookmarks.RemoveAll(b => b.Id == bookmarkId);
             return removed == 0
                 ? ServiceResult<bool>.Failure(404, EbookErrorCodes.BookmarkNotFound, "Bookmark not found.")
@@ -176,10 +206,12 @@ public class BookService : IBookService
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<bool>> DeleteBookAsync(Guid requestingUserId, Guid bookId)
     {
         return await _dataStore.WriteAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<bool>(
                     db, bookId, requestingUserId, "You do not have permission to delete another user's book.", out var book, out var failure))
             {
@@ -191,10 +223,12 @@ public class BookService : IBookService
         });
     }
 
+    /// <inheritdoc/>
     public async Task<ServiceResult<(byte[] FileBytes, string Format, string FileName)>> GetBookFileAsync(Guid requestingUserId, Guid bookId)
     {
         return await _dataStore.ReadAsync(db =>
         {
+            // Verify existence and ownership authorization
             if (!BookAccessHelper.TryGetOwnedBook<(byte[] FileBytes, string Format, string FileName)>(
                     db, bookId, requestingUserId, "You do not have permission to access another user's book.", out var book, out var failure))
             {
@@ -205,14 +239,19 @@ public class BookService : IBookService
         });
     }
 
+    /// <summary>
+    /// Factory helper that builds a new <see cref="Book"/> entity with resolved metadata, defaults, and timestamps.
+    /// </summary>
     private static Book CreateBookEntity(Guid userId, string cleanFileName, byte[] fileBytes, string? customTitle, ParsedEbook parsed)
     {
+        // Resolve title: custom title > metadata title > filename without extension
         var resolvedTitle = !string.IsNullOrWhiteSpace(customTitle)
             ? customTitle.Trim()
             : (!string.IsNullOrWhiteSpace(parsed.MetadataTitle)
                 ? parsed.MetadataTitle.Trim()
                 : Path.GetFileNameWithoutExtension(cleanFileName));
 
+        // Resolve author: when customTitle provided, use cleanFileName; otherwise metadata author > cleanFileName
         var resolvedAuthor = !string.IsNullOrWhiteSpace(customTitle)
             ? cleanFileName
             : (!string.IsNullOrWhiteSpace(parsed.MetadataAuthor)

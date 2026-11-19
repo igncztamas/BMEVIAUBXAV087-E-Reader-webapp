@@ -7,15 +7,18 @@
 
 <PageTitle>My Library – E-book Reader</PageTitle>
 
+@* Render library only when the user is authenticated *@
 @if (Session.IsAuthenticated)
 {
     var filtered = FilteredBooks;
     <div class="workspace-split">
+        @* Left sidebar: search text filter and format filter buttons *@
         <SearchSidebar @bind-SearchQuery="_searchQuery"
                        @bind-FormatFilter="_formatFilter"
                        FilteredCount="filtered.Count"
                        TotalCount="_books.Count" />
 
+        @* Center stage: book cards grid or empty/no-match banners *@
         <div class="workspace-main">
             @if (!string.IsNullOrWhiteSpace(_errorMessage))
             {
@@ -27,18 +30,21 @@
                 <div class="alert alert-success" role="status">@_successMessage</div>
             }
 
+            @* Empty library state *@
             @if (_books.Count == 0)
             {
                 <div class="card" style="text-align: center; color: var(--muted); padding: 2.5rem;">
                     You have no uploaded books yet. Upload a PDF or EPUB file on the right!
                 </div>
             }
+            @* Empty search result state *@
             else if (filtered.Count == 0)
             {
                 <div class="card" style="text-align: center; color: var(--muted); padding: 2.5rem;">
                     No books match your search criteria.
                 </div>
             }
+            @* Filtered books display grid *@
             else
             {
                 <div class="book-grid">
@@ -50,6 +56,7 @@
             }
         </div>
 
+        @* Right sidebar: single/multi-file upload form *@
         <UploadSidebar OnBooksChanged="LoadBooksAsync"
                        OnErrorMessage="msg => _errorMessage = msg"
                        OnSuccessMessage="msg => _successMessage = msg" />
@@ -63,16 +70,22 @@
     private string _searchQuery = string.Empty;
     private string _formatFilter = "ALL";
 
+    /// <summary>
+    /// Evaluates active format and search query filters over the library book collection.
+    /// </summary>
     private List<BookSummaryItemDto> FilteredBooks
     {
         get
         {
             var query = _books.AsEnumerable();
+
+            // Filter by format ("PDF" or "EPUB") if not "ALL"
             if (!string.Equals(_formatFilter, "ALL", StringComparison.OrdinalIgnoreCase))
             {
                 query = query.Where(b => string.Equals(b.Format, _formatFilter, StringComparison.OrdinalIgnoreCase));
             }
 
+            // Substring search on title, author, and file name
             if (!string.IsNullOrWhiteSpace(_searchQuery))
             {
                 var term = _searchQuery.Trim();
@@ -86,11 +99,16 @@
         }
     }
 
+    /// <summary>
+    /// Validates authentication status on load and retrieves the user's book list.
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
         Session.SetHeaderTitle("My Library");
         Session.OnChange += HandleSessionChanged;
         await Session.EnsureInitializedAsync();
+
+        // Redirect to login if user is not authenticated
         if (!Session.IsAuthenticated)
         {
             Navigation.NavigateTo("/login");
@@ -100,6 +118,9 @@
         await LoadBooksAsync();
     }
 
+    /// <summary>
+    /// Reacts to authentication state updates such as logouts.
+    /// </summary>
     private async void HandleSessionChanged()
     {
         if (Session.IsAuthenticated)
@@ -114,6 +135,9 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    /// <summary>
+    /// Fetches all books belonging to the current user from the backend API.
+    /// </summary>
     private async Task LoadBooksAsync()
     {
         Session.SetHeaderTitle("My Library");
@@ -128,6 +152,10 @@
         }
     }
 
+    /// <summary>
+    /// Deletes the specified book from the library and updates local state.
+    /// </summary>
+    /// <param name="bookId">Unique identifier of the book to delete.</param>
     private async Task HandleDeleteBookAsync(Guid bookId)
     {
         _errorMessage = null;
@@ -145,6 +173,9 @@
         }
     }
 
+    /// <summary>
+    /// Unsubscribes from session state change notifications.
+    /// </summary>
     public void Dispose()
     {
         Session.OnChange -= HandleSessionChanged;

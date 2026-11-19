@@ -3,19 +3,31 @@ namespace EbookReader.Backend.Services;
 using System.Text;
 using UglyToad.PdfPig.Content;
 
+/// <summary>
+/// Helper extracting formatted HTML, text line grouping, and embedded raster images from individual PDF pages.
+/// </summary>
 public static class PdfPageContentExtractor
 {
+    /// <summary>
+    /// Extracts HTML markup for a single PDF page, including grouped text lines and embedded images.
+    /// </summary>
+    /// <param name="page">The PdfPig page object.</param>
+    /// <param name="pageNum">The 1-based page number.</param>
+    /// <param name="anyContentExtracted">Reference flag set to true if any text or image content was extracted.</param>
+    /// <returns>HTML page content string.</returns>
     public static string ExtractPageHtml(Page page, int pageNum, ref bool anyContentExtracted)
     {
         var pageSb = new StringBuilder();
         var pageLines = ExtractPageLines(page);
 
+        // Append HTML paragraph tags for each line of text
         foreach (var line in pageLines)
         {
             pageSb.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
             anyContentExtracted = true;
         }
 
+        // Append embedded raster images if found
         if (AppendPageImages(page, pageSb))
         {
             anyContentExtracted = true;
@@ -25,6 +37,11 @@ public static class PdfPageContentExtractor
         return string.IsNullOrWhiteSpace(content) ? $"<p>[PDF Page {pageNum}]</p>" : content;
     }
 
+    /// <summary>
+    /// Groups words into visual lines by comparing vertical bounding box coordinates.
+    /// </summary>
+    /// <param name="page">The PdfPig page object.</param>
+    /// <returns>A list of ordered text lines.</returns>
     public static List<string> ExtractPageLines(Page page)
     {
         var pageLines = new List<string>();
@@ -34,6 +51,7 @@ public static class PdfPageContentExtractor
             var words = page.GetWords()?.ToList();
             if (words != null && words.Count > 0)
             {
+                // Sort words top-to-bottom, left-to-right
                 var sortedWords = words
                     .OrderByDescending(w => w.BoundingBox.Bottom)
                     .ThenBy(w => w.BoundingBox.Left)
@@ -45,6 +63,7 @@ public static class PdfPageContentExtractor
                     List<Word>? targetLine = null;
                     foreach (var line in lines)
                     {
+                        // Cluster words within 3pt vertical baseline proximity into the same line
                         if (Math.Abs(w.BoundingBox.Bottom - line[0].BoundingBox.Bottom) < 3.0)
                         {
                             targetLine = line;
@@ -62,6 +81,7 @@ public static class PdfPageContentExtractor
                     }
                 }
 
+                // Format each clustered line ordered by horizontal left coordinate
                 foreach (var line in lines)
                 {
                     var lineText = string.Join(" ", line.OrderBy(w => w.BoundingBox.Left).Select(w => w.Text)).Trim();
@@ -74,9 +94,10 @@ public static class PdfPageContentExtractor
         }
         catch
         {
-            // Ignore word extraction errors and fall back to page.Text
+            // Ignore word extraction errors and fall back to raw page.Text
         }
 
+        // Fallback to raw page.Text if word clustering yielded nothing
         if (pageLines.Count == 0)
         {
             try
@@ -104,6 +125,12 @@ public static class PdfPageContentExtractor
         return pageLines;
     }
 
+    /// <summary>
+    /// Extracts PNG and JPEG images from the page and appends them as Base64 data URIs.
+    /// </summary>
+    /// <param name="page">The PdfPig page object.</param>
+    /// <param name="pageSb">The string builder accumulating page HTML.</param>
+    /// <returns>True if at least one image was appended; otherwise false.</returns>
     public static bool AppendPageImages(Page page, StringBuilder pageSb)
     {
         bool imageFound = false;
@@ -114,6 +141,7 @@ public static class PdfPageContentExtractor
             {
                 foreach (var img in images)
                 {
+                    // Check for lossless PNG conversion
                     if (img.TryGetPng(out var pngBytes) && pngBytes is { Length: > 0 })
                     {
                         var base64 = Convert.ToBase64String(pngBytes);
@@ -122,6 +150,7 @@ public static class PdfPageContentExtractor
                     }
                     else
                     {
+                        // Check for raw JPEG byte signature (0xFF, 0xD8)
                         var raw = img.RawBytes;
                         if (raw.Count >= 2 && raw[0] == 0xFF && raw[1] == 0xD8)
                         {

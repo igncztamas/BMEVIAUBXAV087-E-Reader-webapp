@@ -6,10 +6,20 @@ using System.Text.RegularExpressions;
 using EbookReader.Backend.Models;
 using VersOne.Epub;
 
+/// <summary>
+/// Parser and validator for EPUB e-book archives using <see cref="VersOne.Epub"/>.
+/// </summary>
 public static class EpubEbookParser
 {
+    /// <summary>
+    /// Validates ZIP header and CRC integrity, then parses chapters, styles, images, and navigation TOC.
+    /// </summary>
+    /// <param name="fileBytes">Raw byte array of the EPUB file.</param>
+    /// <param name="contentHash">Precomputed SHA-256 hash of the file bytes.</param>
+    /// <returns>A <see cref="ServiceResult{T}"/> containing <see cref="ParsedEbook"/> or EPUB corruption error.</returns>
     public static ServiceResult<ParsedEbook> ParseAndValidate(byte[] fileBytes, string contentHash)
     {
+        // Validation guard: ZIP local file header signature 'PK\x03\x04'
         if (fileBytes.Length < 4 ||
             fileBytes[0] != (byte)'P' ||
             fileBytes[1] != (byte)'K' ||
@@ -24,6 +34,7 @@ public static class EpubEbookParser
 
         try
         {
+            // Verify structural archive integrity and CRC checks
             var zipCheck = ValidateZipArchive(fileBytes);
             if (!zipCheck.IsSuccess)
                 return ServiceResult<ParsedEbook>.Failure(zipCheck.StatusCode, zipCheck.ErrorCode!, zipCheck.ErrorMessage!);
@@ -42,6 +53,7 @@ public static class EpubEbookParser
                 return ServiceResult<ParsedEbook>.Failure(400, EbookErrorCodes.EmptyEpubContent, "The EPUB file does not contain readable text chapters.");
             }
 
+            // Extract metadata title and author
             string? title = !string.IsNullOrWhiteSpace(epubBook.Title) ? epubBook.Title.Trim() : null;
             string? author = !string.IsNullOrWhiteSpace(epubBook.Author)
                 ? epubBook.Author.Trim()
@@ -52,6 +64,7 @@ public static class EpubEbookParser
             var chapterPageMap = new Dictionary<string, (int StartPage, int EndPage)>(StringComparer.OrdinalIgnoreCase);
             var pages = new List<string>();
 
+            // Paginate each chapter in the reading order
             foreach (var chapter in epubBook.ReadingOrder)
             {
                 if (chapter == null || string.IsNullOrWhiteSpace(chapter.Content)) continue;
@@ -62,6 +75,7 @@ public static class EpubEbookParser
                 }
                 int endPage = Math.Max(startPage, pages.Count);
 
+                // Map chapter file paths to 1-based page ranges for navigation lookup
                 if (!string.IsNullOrWhiteSpace(chapter.FilePath))
                 {
                     var clean = chapter.FilePath.Replace('\\', '/').TrimStart('/');
@@ -71,15 +85,19 @@ public static class EpubEbookParser
                 }
             }
 
+            // Fail if no readable chapter pages were generated
             if (pages.Count == 0)
             {
                 return ServiceResult<ParsedEbook>.Failure(400, EbookErrorCodes.EmptyEpubContent, "The EPUB file does not contain readable text chapters.");
             }
 
             var toc = new List<TocItem>();
+
+            // Build TOC from formal EPUB navigation items
             if (epubBook.Navigation is { Count: > 0 })
                 BuildNavigationToc(epubBook.Navigation, chapterPageMap, pages, toc, 0);
 
+            // Fall back to scanning HTML headings if navigation is missing
             if (toc.Count == 0)
                 BuildHeadingToc(epubBook.ReadingOrder, chapterPageMap, pages, toc);
 
@@ -91,6 +109,9 @@ public static class EpubEbookParser
         }
     }
 
+    /// <summary>
+    /// Verifies that all entries in the ZIP archive can be opened and read without CRC/decompression corruption.
+    /// </summary>
     private static ServiceResult<bool> ValidateZipArchive(byte[] fileBytes)
     {
         using var zipStream = new MemoryStream(fileBytes, writable: false);
@@ -107,6 +128,9 @@ public static class EpubEbookParser
         return ServiceResult<bool>.Success(true);
     }
 
+    /// <summary>
+    /// Combines all CSS stylesheets declared within the EPUB.
+    /// </summary>
     private static string ExtractCss(EpubBook epubBook)
     {
         var cssSb = new StringBuilder();
@@ -120,6 +144,9 @@ public static class EpubEbookParser
         return cssSb.ToString().Trim();
     }
 
+    /// <summary>
+    /// Extracts local image files from the EPUB and converts them into Base64 data URIs.
+    /// </summary>
     private static Dictionary<string, string> ExtractImageMap(EpubBook epubBook)
     {
         var imageMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -143,6 +170,9 @@ public static class EpubEbookParser
         return imageMap;
     }
 
+    /// <summary>
+    /// Recursively builds a Table of Contents list from EPUB navigation hierarchy.
+    /// </summary>
     private static void BuildNavigationToc(
         IEnumerable<EpubNavigationItem> navItems,
         Dictionary<string, (int StartPage, int EndPage)> chapterPageMap,
@@ -171,6 +201,9 @@ public static class EpubEbookParser
         }
     }
 
+    /// <summary>
+    /// Resolves the target page number corresponding to a content file path and optional HTML anchor.
+    /// </summary>
     private static int ResolvePageForPath(
         string? filePath,
         string? anchor,
@@ -195,6 +228,7 @@ public static class EpubEbookParser
             return 1;
         }
 
+        // Match anchor ID or name attribute across page range
         if (!string.IsNullOrWhiteSpace(anchor))
         {
             for (int p = range.StartPage; p <= range.EndPage && p <= pages.Count; p++)
@@ -213,6 +247,9 @@ public static class EpubEbookParser
         return range.StartPage;
     }
 
+    /// <summary>
+    /// Fallback TOC generator that scans h1-h3 heading tags in chapter pages.
+    /// </summary>
     private static void BuildHeadingToc(
         IEnumerable<EpubLocalTextContentFile> readingOrder,
         Dictionary<string, (int StartPage, int EndPage)> chapterPageMap,

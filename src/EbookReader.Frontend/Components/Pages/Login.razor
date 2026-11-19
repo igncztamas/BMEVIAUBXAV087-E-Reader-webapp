@@ -5,15 +5,18 @@
 
 <PageTitle>Login – E-book Reader</PageTitle>
 
+@* Centered single-card auth container *@
 <div class="auth-page">
     <div class="card auth-card">
         <h1>Login</h1>
 
+        @* Error alert message banner *@
         @if (!string.IsNullOrWhiteSpace(_errorMessage))
         {
             <div class="alert alert-danger" role="alert">@_errorMessage</div>
         }
 
+        @* Username and password fields *@
         <div class="form-group">
             <label for="login-username">Username</label>
             <input id="login-username" class="form-control" @bind="_username" />
@@ -28,6 +31,7 @@
             @(_isSubmitting ? "Logging in..." : "Login")
         </button>
 
+        @* Link to register page *@
         <p style="margin-top: 1rem; text-align: center; font-size: 0.9rem;">
             Don't have an account? <a href="/register">Register here!</a>
         </p>
@@ -40,6 +44,9 @@
     private string? _errorMessage;
     private bool _isSubmitting;
 
+    /// <summary>
+    /// Checks if a session already exists and redirects authenticated users to the library.
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
         await Session.EnsureInitializedAsync();
@@ -49,6 +56,9 @@
         }
     }
 
+    /// <summary>
+    /// Submits login credentials to the backend API.
+    /// </summary>
     private async Task HandleLoginAsync()
     {
         _errorMessage = null;
@@ -59,6 +69,7 @@
             var result = await ApiClient.LoginAsync(_username, _password);
             if (result.IsSuccess)
             {
+                // Navigate to the library dashboard upon successful login
                 Navigation.NavigateTo("/");
             }
             else

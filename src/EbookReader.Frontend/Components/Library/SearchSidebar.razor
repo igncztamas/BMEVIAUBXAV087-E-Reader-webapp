@@ -1,12 +1,15 @@
+@* Left sidebar offering library title search and format filtering *@
 <aside class="left-sidebar library-left-sidebar">
     <div class="card" style="margin-bottom: 0;">
         <h2 style="margin-top: 0; font-size: 1.15rem;">🔍 Search Library</h2>
 
+        @* Real-time search query text input *@
         <div class="form-group">
             <label for="library-search">Search</label>
             <input id="library-search" type="search" class="form-control" value="@SearchQuery" @oninput="HandleQueryInput" />
         </div>
 
+        @* Format filter toggles: All, PDF, EPUB *@
         <div class="form-group" style="margin-bottom: 0.5rem;">
             <label style="display: block; font-weight: 600; margin-bottom: 0.35rem; font-size: 0.9rem;">Format</label>
             <div style="display: flex; gap: 0.4rem;">
@@ -31,10 +34,12 @@
             </div>
         </div>
 
+        @* Count summary of visible books vs total *@
         <div style="font-size: 0.85rem; color: var(--muted); margin-top: 0.85rem;">
             Showing @FilteredCount of @TotalCount books
         </div>
 
+        @* Conditional clear button active whenever filters are applied *@
         @if (!string.IsNullOrWhiteSpace(SearchQuery) || FormatFilter != "ALL")
         {
             <button type="button"
@@ -48,30 +53,54 @@
 </aside>
 
 @code {
+    /// <summary>
+    /// Gets or sets the active search query text.
+    /// </summary>
     [Parameter]
     public string SearchQuery { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Callback delivering search query modifications to parent components.
+    /// </summary>
     [Parameter]
     public EventCallback<string> SearchQueryChanged { get; set; }
 
+    /// <summary>
+    /// Gets or sets the active format filter ("ALL", "PDF", or "EPUB").
+    /// </summary>
     [Parameter]
     public string FormatFilter { get; set; } = "ALL";
 
+    /// <summary>
+    /// Callback delivering format filter updates to parent components.
+    /// </summary>
     [Parameter]
     public EventCallback<string> FormatFilterChanged { get; set; }
 
+    /// <summary>
+    /// Gets or sets the number of books matching the current filter.
+    /// </summary>
     [Parameter]
     public int FilteredCount { get; set; }
 
+    /// <summary>
+    /// Gets or sets the total number of books in the library.
+    /// </summary>
     [Parameter]
     public int TotalCount { get; set; }
 
+    /// <summary>
+    /// Emits query input changes in real-time as the user types.
+    /// </summary>
     private async Task HandleQueryInput(ChangeEventArgs e)
     {
         var query = e.Value?.ToString() ?? string.Empty;
         await SearchQueryChanged.InvokeAsync(query);
     }
 
+    /// <summary>
+    /// Switches the active format filter button and informs parent.
+    /// </summary>
     private async Task SetFormatFilterAsync(string format)
     {
         if (FormatFilter != format)
@@ -80,6 +109,9 @@
         }
     }
 
+    /// <summary>
+    /// Resets search input and format filters back to defaults.
+    /// </summary>
     private async Task ClearFiltersAsync()
     {
         await SearchQueryChanged.InvokeAsync(string.Empty);
